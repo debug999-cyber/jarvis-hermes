@@ -67,7 +67,7 @@ def test_macos_register(ctx):
 def test_core_register(ctx):
     core = load_plugin("jarvis-core")
     core.register(ctx)
-    assert {"jarvis_hud", "jarvis_timer", "jarvis_mode", "jarvis_weather"} == set(ctx.tools)
+    assert {"jarvis_hud", "jarvis_timer", "jarvis_mode", "jarvis_weather", "jarvis_update"} == set(ctx.tools)
     for hook in ("pre_llm_call", "post_llm_call", "pre_tool_call", "post_tool_call", "on_session_start"):
         assert hook in ctx.hooks
     assert {"brief", "focus", "timer"} <= set(ctx.commands)

@@ -12,6 +12,7 @@ provides_tools:
   - jarvis_timer
   - jarvis_mode
   - jarvis_weather
+  - jarvis_update
 
 provides_hooks:
   - pre_llm_call

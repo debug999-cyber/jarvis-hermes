@@ -29,6 +29,7 @@
 | 📱 **Везде** | Telegram, Discord (в т.ч. голосовые каналы), WhatsApp, Slack, iMessage, Email — одна память и один агент | Hermes gateway |
 | ⏰ **Автономность** | cron-задачи (брифинг 08:00, вечерний итог, ночная ревизия базы 03:30), локальный watchdog без LLM (батарея, **справка из базы перед встречей**, **Focus macOS → режим JARVIS**), **heartbeat по чек-листу `HEARTBEAT.md`** (молчит, если всё спокойно), режимы focus/night/presentation | Hermes cron + `jarvis-core` |
 | 🏠 **Умный дом** | Home Assistant (встроенный toolset) или HomeKit через Shortcuts | навык `jarvis-home-automation` |
+| 📦 **Приложение** | JARVIS.app в строке меню (статус, HUD, голос, «Спросить…», обновления), автозапуск при входе, **автообновление с GitHub** с бэкапом и откатом, «обнови себя» голосом | `app/`, `scripts/update.py` |
 | 🔒 **Безопасность** | подтверждение опасных команд (approvals: smart), необратимые действия — только с confirmed=true, локальный STT, секреты не покидают Mac | Hermes + наши инструменты |
 
 ---
@@ -74,6 +75,8 @@ jarvis status     # что запущено
 jarvis-hermes/
 ├── install.sh                 ← установщик macOS (идемпотентный)
 ├── config/HEARTBEAT.md        ← чек-лист тихих проверок (heartbeat)
+├── app/                       ← JARVIS.app: Swift-файл строки меню, Info.plist, build.sh, генератор иконки
+├── VERSION                    ← текущая версия (меняется → GitHub Release → автообновление)
 ├── bin/jarvis                 ← CLI-обёртка: voice / hud / gateway / status / doctor / update
 ├── plugins/
 │   ├── jarvis-core/           ← ядро: контекст хода, HUD-события, таймеры, режимы, погода, watchdog, /brief
@@ -94,9 +97,9 @@ jarvis-hermes/
 │   └── launchd/*.plist        ← автозапуск HUD и gateway
 ├── skills/                    ← навыки: briefing, voice-etiquette, research-brief, home-automation
 ├── hooks/jarvis-boot/         ← gateway-хук: BOOT.md + зеркалирование активности на HUD
-├── scripts/                   ← merge_config.py, setup_cron.sh, selftest.py
+├── scripts/                   ← merge_config.py, setup_cron.sh, selftest.py, update.py, publish.sh
 ├── skill-bundles/jarvis.yaml  ← /jarvis — включить все навыки разом
-├── tests/                     ← pytest (58 тестов, работают и на Linux)
+├── tests/                     ← pytest (65 тестов, работают и на Linux)
 └── docs/                      ← INSTALL, USAGE, ARCHITECTURE, DEVELOPMENT, TROUBLESHOOTING, RESEARCH
 ```
 
@@ -112,6 +115,7 @@ jarvis-hermes/
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Типовые проблемы: микрофон, Accessibility, wake word, TTS, API |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | Исследование: какие проекты и статьи изучены и какие идеи из них взяты (подробно) |
 | [docs/SOURCES.md](docs/SOURCES.md) | Список источников: ссылка → что заимствовано |
+| [docs/APP.md](docs/APP.md) | JARVIS.app в строке меню и автообновление: каналы, режимы, откат, выпуск версий |
 | [docs/SECURITY.md](docs/SECURITY.md) | Модель угроз, разрешения, что не покидает Mac |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | История версий |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | Откуда взяты идеи: обзор open-source «Джарвисов», YouTube-проектов, что заимствовано |
@@ -140,8 +144,8 @@ jarvis-hermes/
 
 ## Статус
 
-Проект написан и проверен в Linux-песочнице (58 тестов, macOS-специфичные вызовы замоканы). На реальном Mac ещё не запускался —
-поэтому первым шагом после установки идёт `jarvis selftest`. Issue и PR приветствуются.
+Проект написан и проверен в Linux-песочнице (65 тестов, macOS-специфичные вызовы замоканы). Первый прогон на реальном Mac (macOS 26.5, M-серия)
+прошёл: 17 из 21 интеграций сразу работали, остальное — права. Первым шагом после установки идёт `jarvis selftest`. Issue и PR приветствуются.
 
 ## Лицензия
 

@@ -23,6 +23,9 @@
 | `jarvis selftest [--fix]` | проверить все mac_* инструменты на этом Mac (без LLM); `--fix` открывает панели недостающих прав |
 | `jarvis brain import` | первичный импорт контактов/проектов в базу знаний |
 | `jarvis heartbeat` | одна тихая проверка по `HEARTBEAT.md` (то, что cron делает каждые 45 мин) |
+| `jarvis update [--check\|--status\|--rollback\|--channel\|--auto]` | автообновление с GitHub (см. docs/APP.md) |
+| `jarvis app [build\|quit]` | приложение строки меню JARVIS.app |
+| `jarvis version` | версии JARVIS и Hermes |
 | `jarvis config` | открыть config.yaml |
 | `jarvis logs` | хвост логов |
 | `jarvis <любая команда hermes>` | прозрачно передаётся в `hermes` (`jarvis cron list`, `jarvis skills list`…) |

@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.4.0 — полноценное приложение и автообновление
+
+### JARVIS.app
+- Приложение строки меню (`app/JarvisMenuBar.swift`, собирается `swiftc` в установщике, без Xcode-проекта): индикатор состояния
+  HUD/API, меню (HUD, голос, «Спросить…», база знаний, старт/стоп, брифинг, selftest, обновления, откат, настройки, логи),
+  автозапуск при входе (`ai.jarvis.app`), иконка-реактор. `jarvis app [open|build|quit]`.
+
+### Автообновление
+- `scripts/update.py` → `~/.hermes/jarvis/update.py`: `check / apply / rollback / auto / status / set`.
+  Каналы `stable` (GitHub Releases) и `main`; режимы `off / check / auto`. Бэкап перед установкой (3 последних), smoke-test
+  скачанного кода, автоматический откат при ошибке, перезапуск сервисов, уведомление macOS + HUD.
+- launchd-агент `ai.jarvis.updater` (ежедневно 11:15). `install.json` / `update.json` / `VERSION`.
+- Инструмент `jarvis_update` — «обнови себя» / «откати обновление» голосом (apply/rollback только с confirmed).
+  Контекст хода сообщает агенту о доступном обновлении.
+- `jarvis update [--check|--status|--rollback|--force|--channel|--auto|--hermes]`, `jarvis version`.
+- `.github/workflows/release.yml` — релиз создаётся автоматически при изменении `VERSION` в main.
+- `install.sh`: флаги `--no-cron`, `--no-app`, тихий режим `JARVIS_QUIET=1` для updater'а; `~/.jarvis-home` для нестандартного `HERMES_HOME`.
+
+### Тесты
+- 65 тестов: `tests/test_updater.py` (сравнение версий, check с fallback на main, бэкап/откат, apply с проваленным install.sh → откат,
+  smoke-test, инструмент jarvis_update).
+
 ## 1.3.1 — первый прогон на реальном Mac (macOS 26.5, Apple Silicon)
 
 `jarvis selftest`: 17 из 21 проверок прошли сразу. Исправлено по его результатам:

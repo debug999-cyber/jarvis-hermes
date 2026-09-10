@@ -18,7 +18,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -76,6 +78,9 @@ def build_context() -> str:
     timers = state.active_timers()
     if timers:
         parts.append("Активные таймеры: " + "; ".join(f"«{t['label']}» через {t['remaining_h']}" for t in timers) + ".")
+    upd = update_status()
+    if upd["update_available"]:
+        parts.append(f"Доступно обновление JARVIS {upd['latest']} (сейчас {upd['version']}) — упомяни один раз, если уместно; ставить только по просьбе.")
     parts.append(f"Обращайся к пользователю: {_cfg['user_name']}.")
     return "[JARVIS context] " + " ".join(parts)
 
@@ -206,6 +211,57 @@ def _run_shortcut(name: str) -> bool:
         return proc.returncode == 0
     except Exception:  # noqa: BLE001 — нет shortcuts (Linux) или таймаут
         return False
+
+
+def _updater_path() -> Path:
+    home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
+    return home / "jarvis" / "update.py"
+
+
+def update_status() -> dict:
+    """Краткий статус обновлений из файлов updater'а (без сети)."""
+    home = _updater_path().parent
+    try:
+        inst = json.loads((home / "install.json").read_text())
+    except (OSError, ValueError):
+        inst = {}
+    try:
+        upd = json.loads((home / "update.json").read_text())
+    except (OSError, ValueError):
+        upd = {}
+    return {"version": inst.get("version", "?"), "channel": inst.get("channel", "stable"),
+            "auto_update": inst.get("auto_update", "check"), "update_available": bool(upd.get("available")),
+            "latest": upd.get("latest"), "last_check": upd.get("checked_at"), "notes": (upd.get("notes") or "")[:400]}
+
+
+def tool_jarvis_update(args: dict, **kwargs) -> str:
+    action = args.get("action") or "status"
+    script = _updater_path()
+    if action == "status":
+        return json.dumps({"success": True, **update_status()}, ensure_ascii=False)
+    if not script.exists():
+        return json.dumps({"success": False, "error": "updater не установлен (нет ~/.hermes/jarvis/update.py) — переустановите через install.sh"}, ensure_ascii=False)
+    if action in ("apply", "rollback") and not args.get("confirmed"):
+        return json.dumps({"success": False, "needs_confirmation": True,
+                           "error": f"{action} требует явного подтверждения пользователя (confirmed=true)"}, ensure_ascii=False)
+    cmd = {"check": ["check", "--json"], "apply": ["apply"], "rollback": ["rollback"],
+           "set_auto": ["set", "auto", str(args.get("value") or "")],
+           "set_channel": ["set", "channel", str(args.get("value") or "")]}.get(action)
+    if not cmd:
+        return json.dumps({"success": False, "error": f"неизвестное действие {action}"}, ensure_ascii=False)
+    try:
+        proc = subprocess.run([sys.executable, str(script), *cmd], capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return json.dumps({"success": False, "error": "updater не ответил за 15 минут"}, ensure_ascii=False)
+    out = (proc.stdout or "").strip()
+    if action == "check" and out.startswith("{"):
+        data = json.loads(out)
+        return json.dumps({"success": not data.get("error"), **data}, ensure_ascii=False)
+    if proc.returncode != 0:
+        return json.dumps({"success": False, "error": (proc.stderr or out)[-800:]}, ensure_ascii=False)
+    if action == "apply":
+        _hud.emit("alert", {"kind": "update", "text": "JARVIS обновлён — сервисы перезапускаются"})
+    return json.dumps({"success": True, "output": out[-1200:], **update_status()}, ensure_ascii=False)
 
 
 def tool_jarvis_weather(args: dict, **kwargs) -> str:
@@ -447,6 +503,7 @@ def register(ctx) -> None:
     ctx.register_tool(name="jarvis_timer", toolset=TOOLSET, schema=schemas.JARVIS_TIMER, handler=tool_jarvis_timer)
     ctx.register_tool(name="jarvis_mode", toolset=TOOLSET, schema=schemas.JARVIS_MODE, handler=tool_jarvis_mode)
     ctx.register_tool(name="jarvis_weather", toolset=TOOLSET, schema=schemas.JARVIS_WEATHER, handler=tool_jarvis_weather)
+    ctx.register_tool(name="jarvis_update", toolset=TOOLSET, schema=schemas.JARVIS_UPDATE, handler=tool_jarvis_update)
 
     # бандл-скиллы плагина (jarvis-core:morning-briefing и т.д.)
     if _SKILLS_DIR.exists():

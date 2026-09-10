@@ -56,6 +56,25 @@ JARVIS_MODE = {
     },
 }
 
+JARVIS_UPDATE = {
+    "name": "jarvis_update",
+    "description": (
+        "Самообновление JARVIS с GitHub. status — текущая версия и есть ли новая; check — проверить сейчас; "
+        "apply — установить (делается бэкап, при ошибке автоматический откат, сервисы перезапускаются; "
+        "ТОЛЬКО по явной просьбе пользователя и с confirmed=true); rollback — откатить последнее обновление; "
+        "set_auto off|check|auto — режим автообновления; set_channel stable|main."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["status", "check", "apply", "rollback", "set_auto", "set_channel"]},
+            "value": {"type": "string", "description": "для set_auto: off|check|auto; для set_channel: stable|main"},
+            "confirmed": {"type": "boolean", "default": False},
+        },
+        "required": ["action"],
+    },
+}
+
 JARVIS_WEATHER = {
     "name": "jarvis_weather",
     "description": "Текущая погода и прогноз на сегодня для города (без API-ключа). «Какая погода?», «погода в Москве».",

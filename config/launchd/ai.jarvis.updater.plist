@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>              <string>ai.jarvis.updater</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__HERMES_HOME__/jarvis/update.py</string>
+    <string>auto</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HERMES_HOME</key> <string>__HERMES_HOME__</string>
+    <key>PATH</key>        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>15</integer></dict>
+  <key>RunAtLoad</key>          <false/>
+  <key>StandardOutPath</key>    <string>__HERMES_HOME__/logs/jarvis-updater.log</string>
+  <key>StandardErrorPath</key>  <string>__HERMES_HOME__/logs/jarvis-updater.log</string>
+</dict>
+</plist>

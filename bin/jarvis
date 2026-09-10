@@ -45,7 +45,10 @@ J.A.R.V.I.S. on Hermes Agent
   jarvis selftest [--fix] проверить все mac_* инструменты и права на ЭТОМ Mac (без LLM)
   jarvis heartbeat       одна проверка «нужно ли что-то сказать?» (для cron/Shortcuts)
   jarvis doctor          диагностика Hermes + проверка плагинов JARVIS
-  jarvis update          обновить Hermes и переустановить плагины JARVIS
+  jarvis update          обновить JARVIS с GitHub (бэкап → установка → перезапуск; откат: --rollback)
+  jarvis update --check  только проверить;  --status · --channel stable|main · --auto off|check|auto · --hermes
+  jarvis app [build|quit] приложение строки меню JARVIS.app
+  jarvis version         версии JARVIS и Hermes
   jarvis perms           открыть нужные панели разрешений macOS
   jarvis config          открыть ~/.hermes/config.yaml в редакторе
   jarvis logs            хвост логов агента и HUD
@@ -84,10 +87,11 @@ case "$cmd" in
     printf "  gateway     : %s\n" "$(gateway_running && echo running || echo stopped)"
     printf "  api :8642   : %s\n" "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8642/health 2>/dev/null || echo down)"
     printf "  hud  :%s  : %s\n" "$HUD_PORT" "$(hud_running && echo running || echo stopped)"
-    printf "  plugins     : %s\n" "$(hermes plugins list 2>/dev/null | grep -i -c jarvis || echo 0)/2 jarvis-*"
+    printf "  plugins     : %s\n" "$(hermes plugins list 2>/dev/null | grep -i -c jarvis || echo 0)/3 jarvis-*"
     printf "  wake word   : %s\n" "$(hermes config get wake_word.enabled 2>/dev/null || echo '—')"
     printf "  stt/tts     : %s / %s\n" "$(hermes config get stt.provider 2>/dev/null || echo '—')" "$(hermes config get tts.provider 2>/dev/null || echo '—')"
-    printf "  launchd     : %s\n" "$(launchctl list 2>/dev/null | grep -c ai.jarvis || echo 0) agents" ;;
+    printf "  launchd     : %s\n" "$(launchctl list 2>/dev/null | grep -c ai.jarvis || echo 0) agents"
+    printf "  version     : %s\n" "$("$PY" "$JARVIS_HOME/update.py" status 2>/dev/null | head -1 || echo '—')" ;;
   brief)     exec hermes chat -s jarvis/briefing -q "Сделай брифинг по навыку morning-briefing прямо сейчас." ;;
   selftest)  exec "$PY" "$JARVIS_HOME/selftest.py" "$@" ;;
   heartbeat) exec hermes chat -s jarvis/heartbeat -q "Heartbeat. Проверь HEARTBEAT.md и ответь NO_REPLY, если ничего не требует внимания." ;;
@@ -121,10 +125,26 @@ case "$cmd" in
       hermes plugins doctor "$HERMES_HOME/plugins/$p" 2>/dev/null | tail -n 5 || true
     done ;;
   update)
-    hermes update || true
-    SRC="${JARVIS_SRC:-}"; [[ -z "$SRC" && -f "$JARVIS_HOME/../jarvis-src-path" ]] && SRC="$(cat "$JARVIS_HOME/../jarvis-src-path")"
-    if [[ -n "$SRC" && -f "$SRC/install.sh" ]]; then bash "$SRC/install.sh" --yes --no-launchd --no-brew-tools; else
-      say "Чтобы переустановить плагины, запустите install.sh из папки проекта."; fi ;;
+    case "${1:-}" in
+      --check|check)     shift; exec "$PY" "$JARVIS_HOME/update.py" check "$@" ;;
+      --rollback|rollback) exec "$PY" "$JARVIS_HOME/update.py" rollback ;;
+      --status|status)   shift; exec "$PY" "$JARVIS_HOME/update.py" status "$@" ;;
+      --channel|channel) exec "$PY" "$JARVIS_HOME/update.py" set channel "${2:?stable|main}" ;;
+      --auto|auto)       exec "$PY" "$JARVIS_HOME/update.py" set auto "${2:?off|check|auto}" ;;
+      --hermes)          exec hermes update ;;
+      --yes|-y|"")       exec "$PY" "$JARVIS_HOME/update.py" apply ;;
+      --force)           exec "$PY" "$JARVIS_HOME/update.py" apply --force ;;
+      *) echo "jarvis update [--check|--rollback|--status|--force|--channel stable|main|--auto off|check|auto|--hermes]"; exit 2 ;;
+    esac ;;
+  version|--version|-v)
+    printf "JARVIS %s · Hermes %s\n" "$(cat "$JARVIS_HOME/VERSION" 2>/dev/null || echo '?')" "$(hermes --version 2>/dev/null | head -1 || echo '?')" ;;
+  app)
+    case "${1:-open}" in
+      open)    open -a "$HOME/Applications/JARVIS.app" ;;
+      build)   bash "$JARVIS_HOME/app.src/build.sh" "$HOME/Applications/JARVIS.app" && open -a "$HOME/Applications/JARVIS.app" ;;
+      quit)    osascript -e 'tell application "JARVIS" to quit' 2>/dev/null || pkill -x JARVIS || true ;;
+      *) echo "jarvis app [open|build|quit]"; exit 2 ;;
+    esac ;;
   perms)
     open "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
     sleep 1; open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"

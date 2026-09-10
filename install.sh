@@ -13,7 +13,8 @@
 #   8. Устанавливает команду `jarvis` и (по желанию) автозапуск через launchd.
 #   9. Запускает `hermes doctor` и печатает следующие шаги.
 #
-#  Флаги:  --no-launchd  --no-voice  --no-brew-tools  --yes  --hermes-home DIR
+#  Флаги:  --no-launchd  --no-voice  --no-brew-tools  --no-cron  --no-app  --yes  --hermes-home DIR
+#  Переменные (для updater): JARVIS_QUIET=1  JARVIS_COMMIT=sha  JARVIS_CHANNEL=stable|main  JARVIS_AUTO_UPDATE=off|check|auto
 # ═══════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -23,13 +24,17 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 HERMES_REPO="$HERMES_HOME/hermes-agent"
 JARVIS_HOME="$HERMES_HOME/jarvis"          # копия HUD и служебных файлов
 BIN_DIR="$HOME/.local/bin"
-INSTALL_LAUNCHD=1; INSTALL_VOICE=1; INSTALL_BREW_TOOLS=1; ASSUME_YES=0
+INSTALL_LAUNCHD=1; INSTALL_VOICE=1; INSTALL_BREW_TOOLS=1; INSTALL_CRON=1; INSTALL_APP=1; ASSUME_YES=0
+JARVIS_VERSION="$(cat "$JARVIS_SRC/VERSION" 2>/dev/null || echo 0.0.0)"
+JARVIS_REPO="${JARVIS_REPO:-debug999-cyber/jarvis-hermes}"
 
 for arg in "$@"; do
   case "$arg" in
     --no-launchd)     INSTALL_LAUNCHD=0 ;;
     --no-voice)       INSTALL_VOICE=0 ;;
     --no-brew-tools)  INSTALL_BREW_TOOLS=0 ;;
+    --no-cron)        INSTALL_CRON=0 ;;
+    --no-app)         INSTALL_APP=0 ;;
     --yes|-y)         ASSUME_YES=1 ;;
     --hermes-home=*)  HERMES_HOME="${arg#*=}"; HERMES_REPO="$HERMES_HOME/hermes-agent"; JARVIS_HOME="$HERMES_HOME/jarvis" ;;
     -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
@@ -161,6 +166,10 @@ cp "$JARVIS_SRC/config/config.jarvis.yaml" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/merge_config.py" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/setup_cron.sh" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/selftest.py" "$JARVIS_HOME/"
+cp "$JARVIS_SRC/scripts/update.py" "$JARVIS_HOME/"
+cp -R "$JARVIS_SRC/app" "$JARVIS_HOME/app.src"   # исходник приложения строки меню (пересобирается при обновлении)
+cp "$JARVIS_SRC/VERSION" "$JARVIS_HOME/VERSION"
+[[ "$HERMES_HOME" == "$HOME/.hermes" ]] && rm -f "$HOME/.jarvis-home" || echo "$HERMES_HOME" > "$HOME/.jarvis-home"
 cp "$JARVIS_SRC/config/HEARTBEAT.md" "$JARVIS_HOME/" 2>/dev/null || true
 ok "HUD → $JARVIS_HOME/hud"
 
@@ -193,9 +202,23 @@ for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
   [[ -f "$rc" ]] && ! grep -q '.local/bin' "$rc" && echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc" || true
 done
 
+# запись «что установлено» — по ней работает автообновление (jarvis update); настройки канала/режима сохраняются
+"$VENV_PY" - "$JARVIS_HOME/install.json" "$JARVIS_VERSION" "${JARVIS_COMMIT:-}" "$JARVIS_REPO" "${JARVIS_CHANNEL:-}" "${JARVIS_AUTO_UPDATE:-}" <<'PY'
+import json, sys, datetime, pathlib
+p, ver, commit, repo, channel, auto = pathlib.Path(sys.argv[1]), *sys.argv[2:7]
+old = {}
+try: old = json.loads(p.read_text())
+except Exception: pass
+data = {**old, "version": ver, "commit": commit or old.get("commit", ""), "repo": repo,
+        "channel": channel or old.get("channel", "stable"), "auto_update": auto or old.get("auto_update", "check"),
+        "installed_at": datetime.datetime.now().replace(microsecond=0).isoformat()}
+p.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+PY
+ok "install.json: версия $JARVIS_VERSION"
+
 if [[ $INSTALL_LAUNCHD -eq 1 ]] && ask "Настроить автозапуск HUD и gateway при входе в систему (launchd)?"; then
   LA="$HOME/Library/LaunchAgents"; mkdir -p "$LA" "$HERMES_HOME/logs"
-  for plist in ai.jarvis.hud ai.jarvis.gateway; do
+  for plist in ai.jarvis.hud ai.jarvis.gateway ai.jarvis.updater; do
     sed -e "s#__HERMES_HOME__#$HERMES_HOME#g" -e "s#__PYTHON__#$VENV_PY#g" -e "s#__HERMES_BIN__#$(command -v hermes)#g" \
         -e "s#__HOME__#$HOME#g" "$JARVIS_SRC/config/launchd/$plist.plist" > "$LA/$plist.plist"
     launchctl unload "$LA/$plist.plist" >/dev/null 2>&1 || true
@@ -203,11 +226,34 @@ if [[ $INSTALL_LAUNCHD -eq 1 ]] && ask "Настроить автозапуск 
   done
 fi
 
+# ─── 8b. JARVIS.app — приложение строки меню ─────────────────────────────
+if [[ $INSTALL_APP -eq 1 ]]; then
+  step "JARVIS.app (строка меню: статус, HUD, голос, обновления)"
+  if command -v swiftc >/dev/null 2>&1; then
+    if APP_PATH="$(bash "$JARVIS_SRC/app/build.sh" "$HOME/Applications/JARVIS.app" 2>&1 | tail -1)" && [[ -d "$APP_PATH" ]]; then
+      ok "$APP_PATH"
+      if [[ $INSTALL_LAUNCHD -eq 1 ]]; then
+        LA="$HOME/Library/LaunchAgents"; mkdir -p "$LA"
+        sed -e "s#__HOME__#$HOME#g" "$JARVIS_SRC/config/launchd/ai.jarvis.app.plist" > "$LA/ai.jarvis.app.plist"
+        launchctl unload "$LA/ai.jarvis.app.plist" >/dev/null 2>&1 || true
+        launchctl load -w "$LA/ai.jarvis.app.plist" >/dev/null 2>&1 && ok "JARVIS.app будет запускаться при входе"
+      fi
+      [[ "${JARVIS_QUIET:-0}" == "1" ]] || open -a "$APP_PATH" 2>/dev/null || true
+    else
+      warn "не удалось собрать JARVIS.app (см. вывод выше) — всё остальное работает через команду jarvis"
+    fi
+  else
+    warn "swiftc не найден — JARVIS.app пропущено. Установите Xcode CLT и выполните: bash app/build.sh"
+  fi
+fi
+
 # ─── 9. cron-задачи JARVIS ────────────────────────────────────────────────
 step "Фоновые задачи (утренний брифинг, контроль батареи)"
-if ask "Создать cron-задачи JARVIS (брифинг 08:00, вечерний итог 21:00, батарея каждые 30 мин)?"; then
+if [[ $INSTALL_CRON -eq 1 ]] && ask "Создать cron-задачи JARVIS (брифинг 08:00, вечерний итог 21:00, ночная ревизия 03:30, heartbeat)?"; then
   bash "$JARVIS_SRC/scripts/setup_cron.sh" || warn "cron не настроен — можно позже: bash ~/.hermes/jarvis/setup_cron.sh"
 fi
+
+if [[ "${JARVIS_QUIET:-0}" == "1" ]]; then echo "JARVIS $JARVIS_VERSION установлен (тихий режим updater)"; exit 0; fi
 
 # ─── 10. модель ───────────────────────────────────────────────────────────
 step "Провайдер LLM"
