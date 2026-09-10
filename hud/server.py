@@ -36,6 +36,10 @@ from urllib.parse import parse_qs, urlparse
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
+sys.path.insert(0, str(HERE))
+import sysinfo  # noqa: E402  — живые данные виджетов (батарея, календарь, таймеры…)
+
+DASH: "sysinfo.Collector | None" = None
 
 CONFIG = {
     "hermes_url": os.environ.get("JARVIS_HERMES_URL", "http://127.0.0.1:8642"),
@@ -65,6 +69,24 @@ def _load_env_key() -> str:
     except OSError:
         pass
     return ""
+
+
+def _explain_http_error(code: int, body: str) -> str:
+    """Человеческое объяснение ошибки от Hermes/провайдера вместо «HTTP 405: Error code: 405»."""
+    body = body.strip()[:300]
+    hints = {
+        401: "Hermes отклонил ключ HUD. Проверьте API_SERVER_KEY в ~/.hermes/.env и перезапустите `jarvis up`.",
+        403: "Доступ запрещён провайдером модели. Проверьте ключ провайдера: `hermes model`.",
+        404: "Модель не найдена у провайдера. Выберите другую: `hermes model`.",
+        405: "Провайдер модели не принимает запросы (405) — обычно неверный URL/endpoint кастомной модели. "
+             "Выполните `hermes model` и выберите рабочую модель (OpenRouter/Anthropic/OpenAI/Ollama).",
+        429: "Лимит запросов провайдера исчерпан. Подождите или смените модель: `hermes model`.",
+        500: "Ошибка на стороне модели. Попробуйте ещё раз или смените модель: `hermes model`.",
+        502: "Провайдер модели недоступен.",
+        503: "Провайдер модели перегружен. Повторите позже.",
+    }
+    hint = hints.get(code, f"Ошибка {code} от Hermes API.")
+    return f"{hint}" + (f"  ({body})" if body and len(body) < 160 else "")
 
 
 # ═════════════════════════════ база знаний (read-only) ════════════════════
@@ -130,11 +152,30 @@ class EventBus:
         self._max_history = history
 
     def subscribe(self) -> queue.Queue:
+        """Новому клиенту отдаём не всю историю, а только «липкое» состояние:
+        открытые панели (после последнего panel.clear, не старше 30 минут, без дублей по id/позиции)
+        и текущий режим. Старые ходы/инструменты не повторяем — иначе после перезагрузки страницы
+        на экране снова всплывали давно закрытые карточки."""
         q: queue.Queue = queue.Queue(maxsize=1000)
         with self._lock:
             self._clients.add(q)
-            for item in self._history[-50:]:
-                q.put_nowait(item)
+            cutoff = time.time() - 1800
+            panels: dict[str, dict] = {}
+            mode = None
+            for ev in self._history:
+                name = ev.get("event")
+                if name == "panel.clear":
+                    panels.clear()
+                elif name == "panel.show" and ev.get("ts", 0) > cutoff:
+                    d = ev.get("data") or {}
+                    if d.get("ttl"):
+                        continue  # временные панели не восстанавливаем
+                    key = str(d.get("id") or ("center" if d.get("position", "center") == "center" else f"{d.get('position')}:{d.get('title')}"))
+                    panels[key] = ev
+                elif name == "mode.set":
+                    mode = ev
+            for ev in ([mode] if mode else []) + list(panels.values()):
+                q.put_nowait({**ev, "replay": True})
         return q
 
     def unsubscribe(self, q: queue.Queue) -> None:
@@ -229,6 +270,8 @@ class Handler(BaseHTTPRequestHandler):
             })
         if u.path == "/api/brain":
             return self._json(200, brain_overview(parse_qs(u.query).get("q", [""])[0]))
+        if u.path == "/api/dashboard":
+            return self._json(200, DASH.snapshot() if DASH else {})
         if u.path == "/file":
             p = parse_qs(u.query).get("path", [""])[0]
             real = os.path.realpath(os.path.expanduser(p))
@@ -261,10 +304,48 @@ class Handler(BaseHTTPRequestHandler):
             if not ev.get("event"):
                 return self._json(400, {"error": "event required"})
             BUS.publish(ev)
+            if ev["event"] == "timer.fire":
+                BUS.publish({"event": "timer.update", "data": {"timers": sysinfo.timers()}})
             return self._json(200, {"ok": True})
         if u.path == "/api/chat":
             return self._chat(self._read_json())
+        if u.path == "/api/timer":
+            return self._timer(self._read_json())
+        if u.path == "/api/mode":
+            body = self._read_json()
+            mode = body.get("mode") if body.get("mode") in ("normal", "focus", "night", "presentation") else "normal"
+            sysinfo.set_mode(mode)
+            BUS.publish({"event": "mode.set", "data": {"mode": mode, "source": "hud"}})
+            return self._json(200, {"ok": True, "mode": mode})
         return self._json(404, {"error": "not found"})
+
+    def _timer(self, body: dict) -> None:
+        """Таймеры из виджета HUD: общий state.json с плагином jarvis-core, стреляет TimerWatcher."""
+        import datetime as dt
+        action = body.get("action")
+        if action == "cancel":
+            n = sysinfo.cancel_timer(str(body.get("label", "")), body.get("target"))
+            BUS.publish({"event": "timer.update", "data": {"timers": sysinfo.timers()}})
+            return self._json(200, {"ok": True, "cancelled": n})
+        if action == "set":
+            label = (str(body.get("label") or "").strip() or "Таймер")[:60]
+            try:
+                minutes = float(body.get("minutes") or 0)
+            except (TypeError, ValueError):
+                minutes = 0
+            if body.get("at"):
+                hh, mm = [int(x) for x in str(body["at"]).split(":")[:2]]
+                target = dt.datetime.now().replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if target <= dt.datetime.now():
+                    target += dt.timedelta(days=1)
+            elif 0 < minutes <= 24 * 60:
+                target = dt.datetime.now() + dt.timedelta(minutes=minutes)
+            else:
+                return self._json(400, {"error": "minutes (1..1440) или at (HH:MM)"})
+            sysinfo.add_timer(label, target)
+            BUS.publish({"event": "timer.update", "data": {"timers": sysinfo.timers()}})
+            return self._json(200, {"ok": True, "label": label, "target": target.isoformat()})
+        return self._json(400, {"error": "action: set|cancel"})
 
     def do_OPTIONS(self):  # noqa: N802
         # CORS-preflight сознательно не разрешаем: HUD — same-origin приложение
@@ -320,7 +401,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             upstream = urllib.request.urlopen(req, timeout=600)
         except urllib.error.HTTPError as e:
-            return self._json(e.code, {"error": e.read().decode(errors="ignore")[:500]})
+            return self._json(e.code, {"error": _explain_http_error(e.code, e.read().decode(errors="ignore"))})
         except Exception as e:  # noqa: BLE001
             return self._json(502, {
                 "error": f"Hermes API недоступен: {e}. Запустите `hermes gateway` и убедитесь, что "
@@ -373,12 +454,24 @@ def main() -> None:
     ap.add_argument("--hermes", default=CONFIG["hermes_url"], help="URL API-сервера Hermes")
     ap.add_argument("--key", default="", help="API_SERVER_KEY (иначе читается из ~/.hermes/.env)")
     ap.add_argument("--model", default=CONFIG["model"])
+    ap.add_argument("--demo", action="store_true", help="демо-данные в виджетах (для скриншотов и разработки)")
     args = ap.parse_args()
 
     CONFIG["hermes_url"] = args.hermes.rstrip("/")
     CONFIG["model"] = args.model
     if args.key:
         CONFIG["hermes_key"] = args.key
+
+    global DASH
+    demo = args.demo or bool(os.environ.get("JARVIS_HUD_DEMO"))
+    DASH = sysinfo.Collector(demo=demo, on_change=lambda ch: BUS.publish({"event": "dashboard.update", "data": ch}))
+    DASH.start()
+    if not demo:
+        def _fire(label: str) -> None:
+            BUS.publish({"event": "timer.fire", "data": {"label": label}})
+            BUS.publish({"event": "timer.update", "data": {"timers": sysinfo.timers()}})
+            sysinfo.notify("JARVIS ⏰", label)
+        sysinfo.TimerWatcher(_fire).start()
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.daemon_threads = True

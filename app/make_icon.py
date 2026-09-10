@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Иконка JARVIS.app в стиле HUD 1.5 («Cinematic Glass»): тёмный стеклянный squircle,
-циановые кольца с сегментами и янтарное ядро. Только стандартная библиотека
+"""Иконка JARVIS.app в стиле HUD («Minimal Glass»): тёмный squircle, светящаяся
+циан-фиолетовая сфера с зерном и две орбиты — как сфера на экране. Только стандартная библиотека
 (PNG пишем сами через zlib/struct), чтобы сборка работала на чистом macOS.
 
 Использование: python3 make_icon.py <папка.iconset>   (дальше iconutil -c icns …)
@@ -8,11 +8,7 @@
 import math, struct, sys, zlib
 from pathlib import Path
 
-CYAN = (55, 230, 255)
-CYAN_DIM = (30, 150, 185)
-AMBER = (255, 181, 71)
-BG_TOP = (18, 26, 40)
-BG_BOT = (5, 8, 14)
+CYAN_HI = (150, 240, 255)
 
 
 def png(w, h, rows):
@@ -36,69 +32,58 @@ def mix(c1, c2, k):
 
 
 def render(n):
+    """Сфера JARVIS (циан → фиолет, зерно, две орбиты) на тёмном стеклянном squircle."""
+    import random
+    rnd = random.Random(7)
     c = (n - 1) / 2
     R = n / 2
-    aa = 1.2 / R                      # ширина сглаживания в нормированных единицах
+    aa = 1.2 / R
+    SR = 0.46                                    # радиус сферы
+    grain = [(rnd.random() * 2 - 1, rnd.random() * 2 - 1, rnd.random()) for _ in range(int(1400 * (n / 1024) ** 2))]  # плотность не зависит от размера
+    grain = [(x, y, o) for x, y, o in grain if x * x + y * y < 1]
     rows = []
     for y in range(n):
         row = []
         for x in range(n):
             nx, ny = (x - c) / R, (y - c) / R
-            # macOS-squircle (суперэллипс) с полем ~10 % как у системных иконок
             s = (abs(nx) ** 5 + abs(ny) ** 5) ** 0.2
             alpha = 1 - smooth(0.90, 0.90 + aa, s)
             if alpha <= 0:
                 row += [0, 0, 0, 0]; continue
-
-            # фон: вертикальный градиент + виньетка
             k = (ny + 1) / 2
-            col = mix(BG_TOP, BG_BOT, k)
+            col = mix((16, 20, 34), (5, 7, 13), k)
             d = math.hypot(nx, ny)
-            a = math.atan2(ny, nx)
-
-            # свечение ядра
-            glow = math.exp(-(d / 0.34) ** 2) * 0.85
-            col = mix(col, CYAN, glow * 0.55)
-
-            # внешние тонкие кольца
-            cov = 0.0
-            cov = max(cov, ring(d, 0.74, 0.012, aa) * 0.55)
-            cov = max(cov, ring(d, 0.66, 0.010, aa) * 0.35)
-            # сегментированное кольцо (12 сегментов с зазорами)
-            seg = int((a + math.pi) / (2 * math.pi) * 12 + 0.5) % 12
-            phase = ((a + math.pi) / (2 * math.pi) * 12 + 0.5) % 1
-            if 0.12 < phase < 0.88:
-                cov = max(cov, ring(d, 0.56, 0.055, aa) * (0.9 if seg % 3 else 0.55))
-            # риски-тики снаружи
-            tph = ((a + math.pi) / (2 * math.pi) * 36) % 1
-            if 0.42 < tph < 0.58:
-                cov = max(cov, ring(d, 0.83, 0.05, aa) * 0.45)
-            col = mix(col, CYAN_DIM, min(1.0, cov))
-            col = mix(col, CYAN, min(1.0, cov) * 0.6)
-
-            # внутреннее кольцо и линза
-            inner = ring(d, 0.40, 0.03, aa)
-            col = mix(col, CYAN, inner * 0.95)
-            lens = 1 - smooth(0.36, 0.36 + aa, d)
-            if lens > 0:
-                kk = max(0.0, 1 - d / 0.36)
-                lens_col = mix((14, 60, 80), CYAN, kk ** 1.6)
-                col = mix(col, lens_col, lens)
-            # янтарное ядро
-            core = math.exp(-(d / 0.11) ** 2)
-            col = mix(col, AMBER, min(1.0, core * 1.15))
-            hot = math.exp(-(d / 0.045) ** 2)
-            col = mix(col, (255, 245, 220), hot)
-
-            # стеклянный блик сверху
-            gloss = (1 - smooth(-0.25, 0.05, ny)) * 0.10
-            col = mix(col, (255, 255, 255), gloss)
-            # тонкая кромка
-            edge = ring(s, 0.90, 0.02, aa) * 0.35
-            col = mix(col, (120, 200, 230), edge)
-
+            # ореол
+            halo = math.exp(-(d / 0.78) ** 2) * 0.55
+            col = mix(col, (70, 120, 255), halo)
+            # орбиты (два наклонённых эллипса)
+            for rot, tilt in ((0.5, 0.36), (-0.9, 0.55)):
+                ca, sa = math.cos(rot), math.sin(rot)
+                ex, ey = nx * ca + ny * sa, -nx * sa + ny * ca
+                e = math.hypot(ex / (SR * 1.32), ey / (SR * 1.32 * tilt))
+                cov = ring(e, 1.0, max(0.006, 1.2 / R) / (SR * 1.32), aa / (SR * 1.32))
+                behind = ey < 0 and d < SR  # за сферой — не рисуем
+                if not behind:
+                    col = mix(col, (170, 200, 255), cov * 0.45)
+            # сфера
+            inside = 1 - smooth(SR, SR + aa, d)
+            if inside > 0:
+                lx, ly = nx + SR * 0.35, ny + SR * 0.4       # источник света слева-сверху
+                t = min(1.0, math.hypot(lx, ly) / (SR * 1.35))
+                body = mix(mix(CYAN_HI, (60, 140, 255), smooth(0, 0.55, t)), (70, 40, 170), smooth(0.45, 1.0, t))
+                rim = smooth(SR * 0.82, SR, d)
+                body = mix(body, (14, 10, 50), rim * 0.55)
+                col = mix(col, body, inside)
             row += [int(col[0]), int(col[1]), int(col[2]), int(255 * alpha)]
         rows.append(row)
+    # зерно поверх сферы
+    for gx, gy, o in grain:
+        px, py = int(c + gx * SR * R), int(c + gy * SR * R)
+        if 0 <= px < n and 0 <= py < n:
+            i = px * 4
+            a = 0.2 + 0.45 * o
+            for ch in range(3):
+                rows[py][i + ch] = int(rows[py][i + ch] + (255 - rows[py][i + ch]) * a * 0.9)
     return png(n, n, rows)
 
 

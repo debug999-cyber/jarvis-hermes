@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import logging
 import os
 import subprocess
@@ -85,15 +86,38 @@ def build_context() -> str:
     return "[JARVIS context] " + " ".join(parts)
 
 
+_SKILL_INJECT_RE = re.compile(r'^\s*\[IMPORTANT: The user has invoked the "([^"]+)" skill', re.I)
+
+
+def _turn_source(session_id: str, user_message: str, kwargs: dict) -> tuple[str, str]:
+    """Откуда пришёл ход: ('user', текст) для живого диалога, ('cron', подпись) для фоновых задач.
+
+    Cron-сессии Hermes называются cron_<id>, а их «сообщение пользователя» — это служебный промпт
+    с вставленным навыком. Раньше он попадал на HUD как «ВЫ: [IMPORTANT: The user has invoked…]».
+    """
+    text = user_message or ""
+    platform = str(kwargs.get("platform") or "")
+    m = _SKILL_INJECT_RE.match(text)
+    if session_id.startswith("cron") or platform == "cron" or m:
+        label = m.group(1).split("/")[-1] if m else (kwargs.get("job_name") or "задача")
+        return "cron", label
+    return "user", text[:300]
+
+
 def hook_pre_llm_call(session_id: str = "", user_message: str = "", is_first_turn: bool = False, **kwargs):
-    _hud.emit("turn.start", {"session": session_id, "text": (user_message or "")[:300]})
+    source, text = _turn_source(session_id, user_message, kwargs)
+    _hud.emit("turn.start", {"session": session_id, "text": text, "source": source})
     if not _cfg.get("inject_context", True):
         return None
     return {"context": build_context()}
 
 
 def hook_post_llm_call(session_id: str = "", assistant_response: str = "", **kwargs):
-    _hud.emit("turn.end", {"session": session_id, "text": (assistant_response or "")[:2000]})
+    source = "cron" if session_id.startswith("cron") or str(kwargs.get("platform") or "") == "cron" else "user"
+    text = (assistant_response or "").strip()
+    if source == "cron" and text.upper().strip("[] ") in {"NO_REPLY", "SILENT", ""}:
+        text = ""  # heartbeat промолчал — на HUD показывать нечего
+    _hud.emit("turn.end", {"session": session_id, "text": text[:2000], "source": source})
 
 
 def hook_pre_tool_call(tool_name: str = "", args: dict | None = None, task_id: str = "", **kwargs):

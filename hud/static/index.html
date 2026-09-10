@@ -3,386 +3,469 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="color-scheme" content="dark">
 <title>J.A.R.V.I.S. — HUD</title>
 <style>
-  /* ─────────────────────────────────────────────────────────────────────────
-     JARVIS HUD · дизайн-система «Cinematic Glass»
-     Идея: арк-реактор из фильма (кольца, янтарное ядро, циан) + стеклянные
-     карточки уровня macOS. Спокойный режим: на экране только центр и
-     транскрипт; панели появляются по событию или по клавише.
-     Всё — SVG/Canvas/CSS, без внешних ресурсов (работает офлайн и в песочнице).
-     ───────────────────────────────────────────────────────────────────────── */
+  /* ────────────────────────────────────────────────────────────────────────
+     JARVIS HUD · дизайн «Minimal Glass» (концепт B)
+     Три колонки: слева «Сегодня» и «Знания», в центре сфера и диалог,
+     справа «Система» и «Таймеры». Виджеты живут на реальных данных
+     (/api/dashboard), а не на декорациях. Без внешних ресурсов.
+     ──────────────────────────────────────────────────────────────────────── */
   :root{
-    --bg:#05070c; --bg-2:#0a0f18;
-    --cyan:#37e6ff; --cyan-soft:#7be9ff; --cyan-08:rgba(55,230,255,.08); --cyan-15:rgba(55,230,255,.15); --cyan-30:rgba(55,230,255,.3);
-    --amber:#ffb547; --amber-30:rgba(255,181,71,.3);
-    --red:#ff5f6d; --green:#4fe3a3; --violet:#8b7cff;
-    --text:#e9f4fa; --text-2:#9fb3c2; --text-3:#5f7484;
-    --glass:rgba(14,20,30,.62); --glass-2:rgba(255,255,255,.035); --stroke:rgba(255,255,255,.08); --stroke-2:rgba(255,255,255,.14);
-    --r:18px; --r-s:12px;
+    --bg:#05070d;
+    --card:rgba(255,255,255,.035); --card-hd:rgba(255,255,255,.02); --tile:rgba(255,255,255,.055);
+    --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.13);
+    --text:#f2f5fa; --text-2:#9aa3b5; --text-3:#5f6779;
+    --cyan:#5ee7ff; --violet:#8b7cff; --green:#4ade80; --amber:#fbbf24; --red:#f87171;
+    --grad:linear-gradient(90deg,var(--cyan),var(--violet));
+    --r:20px; --r-s:12px;
     --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Inter,system-ui,sans-serif;
-    --mono:"SF Mono",ui-monospace,Menlo,"JetBrains Mono",monospace;
     --ease:cubic-bezier(.2,.8,.2,1);
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased}
-  button,input{font:inherit;color:inherit}
-  ::selection{background:var(--cyan-30)}
+  html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden;-webkit-font-smoothing:antialiased;font-size:14px}
+  button,input{font:inherit;color:inherit;background:none;border:0;outline:0}
+  button{cursor:pointer}
+  ::selection{background:rgba(94,231,255,.3)}
+  svg{display:block}
 
-  /* фон: глубина + очень лёгкая сетка + виньетка */
   #bg{position:fixed;inset:0;pointer-events:none;background:
-    radial-gradient(1200px 700px at 50% 42%, rgba(55,230,255,.10), transparent 60%),
-    radial-gradient(900px 600px at 50% 60%, rgba(139,124,255,.07), transparent 65%),
-    linear-gradient(180deg,var(--bg-2),var(--bg) 70%)}
-  #bg::before{content:"";position:absolute;inset:0;background-image:
-    linear-gradient(rgba(255,255,255,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.028) 1px,transparent 1px);
-    background-size:64px 64px;mask-image:radial-gradient(ellipse at 50% 45%,#000 20%,transparent 75%);-webkit-mask-image:radial-gradient(ellipse at 50% 45%,#000 20%,transparent 75%)}
-  #bg::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 220px 60px rgba(0,0,0,.75)}
-  body.night #bg{filter:saturate(.4) brightness(.6)}
+    radial-gradient(720px 520px at 50% 46%, rgba(70,130,255,.16), transparent 62%),
+    radial-gradient(560px 420px at 56% 62%, rgba(139,124,255,.12), transparent 65%),
+    radial-gradient(900px 400px at 50% 110%, rgba(30,40,80,.5), transparent 70%),
+    var(--bg)}
+  body.night #bg{filter:saturate(.35) brightness(.7)}
 
-  /* ── шапка ── */
-  header{position:fixed;top:0;left:0;right:0;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;z-index:5}
-  .brand{display:flex;align-items:baseline;gap:12px}
-  .brand b{font-weight:600;letter-spacing:.42em;font-size:13px;color:var(--text)}
-  .brand small{font-size:10px;letter-spacing:.22em;color:var(--text-3);font-weight:500}
-  .hstat{display:flex;align-items:center;gap:18px;font-family:var(--mono);font-size:11px;color:var(--text-2);letter-spacing:.06em}
-  .hstat span{display:flex;align-items:center;gap:7px}
-  .dot{width:6px;height:6px;border-radius:50%;background:var(--text-3);box-shadow:0 0 0 0 transparent;transition:.4s}
-  .dot.on{background:var(--green);box-shadow:0 0 10px var(--green)}
-  #mode{color:var(--amber);font-weight:600}
-  #mode.normal{color:var(--text-2);font-weight:500}
-  #clock{font-size:15px;color:var(--text);font-weight:500;letter-spacing:.04em;font-variant-numeric:tabular-nums}
-  .chip{padding:3px 9px;border:1px solid var(--stroke);border-radius:999px;background:var(--glass-2);font-size:10px;letter-spacing:.12em;color:var(--text-2)}
-  .chip.upd{border-color:var(--amber-30);color:var(--amber);cursor:pointer;display:none}
-  .chip.upd.show{display:inline-block}
+  /* ── каркас ── */
+  #app{position:fixed;inset:0;display:grid;grid-template-rows:64px 1fr;grid-template-columns:352px minmax(0,1fr) 352px;column-gap:24px;padding:0 28px 28px}
+  header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between}
+  .wordmark{font-size:15px;font-weight:500;letter-spacing:.42em;color:var(--text);padding-left:2px}
+  .hright{display:flex;align-items:center;gap:18px;color:var(--text-2);font-size:14px}
+  .hright .sep{width:1px;height:18px;background:var(--line-2)}
+  .status{display:flex;align-items:center;gap:9px}
+  .status i{width:8px;height:8px;border-radius:50%;background:var(--text-3)}
+  .status.on i{background:var(--green);box-shadow:0 0 10px rgba(74,222,128,.7)}
+  .status.off{color:var(--red)}.status.off i{background:var(--red)}
+  #clock{font-variant-numeric:tabular-nums;color:var(--text)}
+  .chip{padding:5px 11px;border-radius:999px;background:rgba(251,191,36,.12);color:var(--amber);font-size:12px;font-weight:500;display:none}
+  .chip.show{display:inline-block}
+  #modeChip{background:rgba(139,124,255,.14);color:#b3a9ff}
 
-  /* ── центр ── */
-  #stage{position:fixed;inset:56px 0 118px;display:grid;grid-template-rows:1fr auto;place-items:center;z-index:2}
-  #core{position:relative;width:min(46vh,420px);height:min(46vh,420px);cursor:pointer;user-select:none}
-  #core canvas{position:absolute;inset:-30%;width:160%;height:160%}
-  #stateLbl{position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);font-family:var(--mono);font-size:10px;letter-spacing:.42em;color:var(--text-3);text-transform:uppercase;white-space:nowrap;transition:.3s}
-  #core.listening #stateLbl,#core.speaking #stateLbl{color:var(--cyan-soft)}
-  #core.thinking #stateLbl{color:var(--amber)}
-  #hint{position:absolute;left:50%;top:calc(100% + 26px);transform:translateX(-50%);font-size:12px;color:var(--text-3);white-space:nowrap;opacity:.9;transition:.4s}
-  #core:not(.idle) #hint{opacity:0}
-
-  #dialog{width:min(760px,86vw);padding:0 0 18px;display:flex;flex-direction:column;gap:10px;align-items:stretch}
-  #transcript{font-size:13px;color:var(--text-2);min-height:18px;text-align:center;letter-spacing:.01em}
-  #transcript .u{font-family:var(--mono);font-size:10px;letter-spacing:.3em;color:var(--text-3);margin-right:10px}
-  #reply{font-size:clamp(15px,1.7vw,19px);line-height:1.5;color:var(--text);text-align:center;max-height:22vh;overflow-y:auto;padding:0 8px;
-    text-wrap:balance;scrollbar-width:thin;scrollbar-color:var(--stroke-2) transparent;transition:opacity .3s}
-  #reply:empty{display:none}
-  #reply b{color:var(--cyan-soft);font-weight:600}
-  #reply code{font-family:var(--mono);font-size:.88em;background:var(--glass-2);padding:1px 6px;border-radius:6px;border:1px solid var(--stroke)}
-
-  /* ── композер ── */
-  #composer{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);width:min(760px,86vw);z-index:6;
-    display:flex;align-items:center;gap:6px;padding:8px 8px 8px 14px;border-radius:999px;
-    background:var(--glass);border:1px solid var(--stroke-2);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
-    box-shadow:0 20px 60px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.06);transition:border-color .3s,box-shadow .3s}
-  #composer:focus-within{border-color:var(--cyan-30);box-shadow:0 20px 60px rgba(0,0,0,.45),0 0 0 4px var(--cyan-08)}
-  #composer .spark{width:18px;height:18px;flex:none;color:var(--cyan);opacity:.9}
-  #input{flex:1;background:transparent;border:0;outline:0;font-size:15px;color:var(--text);min-width:0}
-  #input::placeholder{color:var(--text-3)}
-  #wave{width:120px;height:26px;flex:none;opacity:.55}
-  .ibtn{width:38px;height:38px;border-radius:50%;border:1px solid transparent;background:transparent;display:grid;place-items:center;cursor:pointer;color:var(--text-2);transition:.2s}
-  .ibtn:hover{background:var(--glass-2);color:var(--text);border-color:var(--stroke)}
-  .ibtn.primary{background:var(--cyan);color:#03222b}
-  .ibtn.primary:hover{background:var(--cyan-soft)}
-  .ibtn.active{color:var(--cyan);border-color:var(--cyan-30);background:var(--cyan-08);box-shadow:0 0 18px var(--cyan-15)}
-  .ibtn svg{width:17px;height:17px}
-  #kbd{position:fixed;left:50%;bottom:11px;transform:translateX(-50%);font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--text-3);z-index:6;white-space:nowrap}
-  #kbd kbd{border:1px solid var(--stroke-2);border-bottom-width:2px;border-radius:5px;padding:1px 5px;color:var(--text-2);font:inherit;margin:0 2px}
-
-  /* ── доки (левая/правая колонки) — появляются по событию или по клавише ── */
-  .dock{position:fixed;top:72px;bottom:130px;width:min(320px,26vw);display:flex;flex-direction:column;gap:12px;z-index:4;pointer-events:none;overflow:hidden}
-  .dock.left{left:20px}.dock.right{right:20px;align-items:flex-end}
-  .dock > *{pointer-events:auto}
+  .col{display:flex;flex-direction:column;gap:20px;min-height:0;overflow:hidden;padding-top:12px}
+  .col.right{align-items:stretch}
+  body.zen .col{display:none}
+  body.zen #app{grid-template-columns:0 1fr 0}
 
   /* ── карточки ── */
-  .card{width:100%;border-radius:var(--r);background:var(--glass);border:1px solid var(--stroke);
-    backdrop-filter:blur(24px) saturate(150%);-webkit-backdrop-filter:blur(24px) saturate(150%);
-    box-shadow:0 18px 50px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.05);overflow:hidden;
-    animation:cardIn .55s var(--ease) both;transition:opacity .35s,transform .35s}
-  .card.leaving{opacity:0;transform:translateY(8px) scale(.98)}
-  .card .hd{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid var(--stroke)}
-  .card .hd h3{font-size:10px;letter-spacing:.3em;font-weight:600;color:var(--text-2);display:flex;align-items:center;gap:8px}
-  .card .hd h3 i{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
-  .card .hd .x{width:22px;height:22px;border-radius:50%;border:0;background:transparent;color:var(--text-3);cursor:pointer;display:grid;place-items:center}
-  .card .hd .x:hover{background:var(--glass-2);color:var(--text)}
-  .card .bd{padding:12px 14px;font-size:13px;line-height:1.45;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--stroke-2) transparent}
-  /* центральная карточка: реактор уменьшается и уходит вверх, карточка встаёт под ним */
-  .card.big{width:min(880px,88vw);position:fixed;left:0;right:0;margin:0 auto;top:calc(56px + 23vh);max-height:calc(72vh - 118px - 56px);display:flex;flex-direction:column;z-index:7}
-  .card.big .bd{max-height:calc(80vh - 118px - 56px - 46px)}
-  body.has-center #core{transform:translateY(-50%) scale(.36);opacity:.9}
-  body.has-center #hint{opacity:0}
-  #core{transition:transform .5s cubic-bezier(.2,.8,.2,1),opacity .4s}
-  .card .bd img,.card .bd video,.card .bd iframe{width:100%;border-radius:var(--r-s);display:block;border:0;background:#000}
-  .card .bd iframe{aspect-ratio:16/9}
-  .card .bd h2,.card .bd h3,.card .bd h4{color:var(--text);margin:8px 0 4px;font-weight:600}
-  .card .bd code{font-family:var(--mono);font-size:.9em;background:var(--glass-2);padding:1px 5px;border-radius:5px}
-  .card .bd .muted{color:var(--text-3)}
-  .card .bd ul{padding-left:0;list-style:none}
-  .card .bd li{padding:6px 0;border-bottom:1px solid var(--stroke)}
-  .card .bd li:last-child{border-bottom:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;flex:none;display:flex;flex-direction:column;
+    box-shadow:0 30px 60px -30px rgba(0,0,0,.6);animation:in .5s var(--ease) both;transition:opacity .3s,transform .3s}
+  .card.leaving{opacity:0;transform:translateY(6px)}
+  .card.grow{flex:1 1 auto;min-height:120px}
+  .card .hd{display:flex;align-items:center;gap:12px;height:66px;padding:0 16px 0 18px;border-bottom:1px solid var(--line);background:var(--card-hd);flex:none}
+  .card .hd .tile{margin-right:2px}
+  .card .hd h2{font-size:16px;font-weight:600;flex:1;letter-spacing:-.01em}
+  .card .hd .more{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--text-2)}
+  .card .hd .more:hover{background:var(--tile);color:var(--text)}
+  .card .bd{padding:10px 12px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;min-height:0}
+  .card .ft{border-top:1px solid var(--line);height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 18px 0 20px;color:var(--text-2);font-size:14px;flex:none}
+  .card .ft button{display:flex;align-items:center;gap:10px;color:inherit;width:100%;height:100%;justify-content:space-between}
+  .card .ft button:hover{color:var(--text)}
+  .tile{width:38px;height:38px;border-radius:11px;background:var(--tile);border:1px solid var(--line);display:grid;place-items:center;flex:none;color:var(--text)}
+  .tile svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .tile.cyan{color:var(--cyan)}.tile.violet{color:var(--violet)}.tile.green{color:var(--green)}.tile.amber{color:var(--amber)}
+  .row{display:flex;align-items:center;gap:14px;padding:9px 8px;border-radius:14px}
+  .row:hover{background:rgba(255,255,255,.025)}
+  .row .tx{flex:1;min-width:0}
+  .row .tx b{display:block;font-weight:500;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .tx small{display:block;color:var(--text-2);font-size:12.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .rt{display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:12.5px;font-variant-numeric:tabular-nums;flex:none}
+  .row .rt i{width:6px;height:6px;border-radius:50%;background:var(--cyan)}
+  .row .rt i.violet{background:var(--violet)}.row .rt i.green{background:var(--green)}.row .rt i.amber{background:var(--amber)}
+  .row.sys{padding:12px 8px}
+  .row.sys .tx b{font-size:14px}
+  .row.sys + .row.sys{border-top:1px solid var(--line);border-radius:0}
+  .empty{padding:22px 12px;color:var(--text-3);font-size:13.5px;line-height:1.5;text-align:center}
+  .empty b{color:var(--text-2);font-weight:500}
 
-  /* мини-элементы карточек */
-  .kv{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--stroke);font-size:12.5px}
-  .kv:last-child{border-bottom:0}
-  .kv span:first-child{color:var(--text-2)}
-  .kv b{font-weight:600;font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:12px}
-  .gauge{display:flex;align-items:center;gap:12px;padding:8px 0}
-  .gauge svg{width:44px;height:44px;flex:none}
-  .gauge .lbl{font-size:11px;color:var(--text-2);letter-spacing:.08em}
-  .gauge .val{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
-  .bar{height:4px;border-radius:2px;background:var(--glass-2);overflow:hidden;margin-top:6px}
-  .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--violet));border-radius:2px;transition:width .6s var(--ease)}
-  .tag{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--stroke);background:var(--glass-2);font-size:11px;color:var(--text-2);margin:2px 3px 2px 0}
-  .tag b{color:var(--text);margin-left:4px}
-  .sec{font-size:10px;letter-spacing:.28em;color:var(--cyan);margin:12px 0 6px;font-weight:600}
-  .sec.warn{color:var(--amber)}
-  .chart{display:flex;align-items:flex-end;gap:8px;height:170px;padding:20px 0 18px}
-  .chart .b{flex:1;background:linear-gradient(180deg,var(--cyan),rgba(55,230,255,.25));border-radius:6px 6px 2px 2px;position:relative;min-height:4px}
-  .chart .b b{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--text-2);font-weight:500}
-  .chart .b span{position:absolute;top:100%;left:50%;transform:translateX(-50%);font-size:10px;color:var(--text-3);margin-top:4px;white-space:nowrap}
+  .prog{height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px}
+  .prog i{display:block;height:100%;border-radius:2px;background:var(--grad);transition:width .8s var(--ease)}
+  .prog.green i{background:var(--green)}.prog.amber i{background:var(--amber)}.prog.red i{background:var(--red)}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:6px 6px 2px}
+  .stat{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .stat small{display:block;color:var(--text-2);font-size:12.5px}
+  .stat b{display:block;font-size:26px;font-weight:600;margin-top:4px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .kbase{padding:14px 12px 8px}
+  .kbase .l{display:flex;justify-content:space-between;color:var(--text-2);font-size:13px}
+  .kbase .l b{color:var(--text);font-weight:500}
+  .pill{padding:6px 14px;border-radius:999px;background:rgba(255,255,255,.06);color:var(--text-2);font-size:13px;font-weight:500;transition:.2s}
+  .pill.on{background:rgba(94,231,255,.14);color:var(--cyan)}
+  .pill:hover{filter:brightness(1.2)}
+  .pct{font-weight:600;color:var(--green);font-size:14px}
+  .pct.amber{color:var(--amber)}.pct.red{color:var(--red)}
+  .chev{color:var(--text-2)}
+  /* таймеры */
+  .ring{width:40px;height:40px;border-radius:50%;border:1.5px solid rgba(94,231,255,.55);display:grid;place-items:center;color:var(--text);flex:none}
+  .ring.violet{border-color:rgba(139,124,255,.6)}
+  .ring svg{width:14px;height:14px;fill:currentColor;margin-left:2px}
+  .xbtn{width:36px;height:36px;border-radius:50%;background:var(--tile);border:1px solid var(--line);display:grid;place-items:center;color:var(--text-2)}
+  .xbtn:hover{color:var(--text);background:rgba(255,255,255,.09)}
+  .xbtn svg{width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round}
+  .tform{display:none;gap:8px;padding:8px 8px 4px}
+  .tform.show{display:flex}
+  .tform input{flex:1;background:rgba(255,255,255,.05);border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;font-size:14px;min-width:0}
+  .tform input.n{flex:0 0 74px;text-align:center}
+  .tform input:focus{border-color:rgba(94,231,255,.5)}
+  .tform button{padding:0 14px;border-radius:10px;background:rgba(94,231,255,.16);color:var(--cyan);font-weight:500}
+
+  /* ── центр ── */
+  #center{display:grid;grid-template-rows:minmax(0,1fr) auto auto auto;justify-items:center;min-height:0;min-width:0;position:relative;padding-top:12px}
+  #orbWrap{display:flex;align-items:center;justify-content:center;width:100%;min-height:0;position:relative}
+  #orb{position:relative;width:min(38vh,360px);aspect-ratio:1;cursor:pointer;transition:transform .5s var(--ease),opacity .4s}
+  #orb canvas{position:absolute;inset:-40%;width:180%;height:180%}
+  #orbState{position:absolute;left:50%;top:calc(100% + 18px);transform:translateX(-50%);color:var(--text-2);font-size:13px;white-space:nowrap;opacity:0;transition:.3s}
+  #orbState.show{opacity:1}
+  body.has-center #orb{transform:scale(.42);opacity:.9}
+  body.has-center #orbWrap{max-height:22vh;min-height:22vh}
+  #centerCards{width:min(760px,100%);display:flex;flex-direction:column;gap:14px;min-height:0;overflow:hidden}
+  #centerCards .card .bd{max-height:38vh;padding:16px 18px;font-size:14px;line-height:1.55}
+  #centerCards .card .bd img,#centerCards .card .bd video,#centerCards .card .bd iframe{width:100%;border-radius:var(--r-s);display:block;border:0;background:#000}
+  #centerCards .card .bd iframe{aspect-ratio:16/9}
+  #centerCards .card .bd h2,#centerCards .card .bd h3,#centerCards .card .bd h4{margin:10px 0 4px;font-weight:600;font-size:15px}
+  #centerCards .card .bd code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;background:var(--tile);padding:1px 6px;border-radius:6px}
+  #centerCards .card .bd ul{list-style:none}
+  #centerCards .card .bd li{padding:8px 0;border-bottom:1px solid var(--line)}
+  #centerCards .card .bd li:last-child{border:0}
+  .muted{color:var(--text-2)}
+  .sec{font-size:12px;color:var(--text-2);margin:14px 0 6px;font-weight:500}
+  .tag{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--tile);border:1px solid var(--line);font-size:12px;color:var(--text-2);margin:2px 4px 2px 0}
+  .tag b{color:var(--text);margin-left:5px}
+  .chart{display:flex;align-items:flex-end;gap:10px;height:180px;padding:22px 4px 20px}
+  .chart .b{flex:1;background:linear-gradient(180deg,var(--cyan),rgba(139,124,255,.35));border-radius:8px 8px 3px 3px;position:relative;min-height:4px}
+  .chart .b b{position:absolute;top:-20px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--text-2);font-weight:500}
+  .chart .b span{position:absolute;top:100%;left:50%;transform:translateX(-50%);font-size:11px;color:var(--text-3);margin-top:5px;white-space:nowrap}
+  .search{display:flex;gap:8px;margin-bottom:6px}
+  .search input{flex:1;background:rgba(255,255,255,.05);border:1px solid var(--line-2);border-radius:10px;padding:9px 12px}
+  .kv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+  .kv span{color:var(--text-2)}.kv:last-child{border:0}
+
+  #dialog{width:min(720px,100%);padding:16px 0 16px;display:flex;flex-direction:column;gap:8px;align-items:center}
+  #transcript{color:var(--text-2);font-size:13.5px;text-align:center;min-height:16px}
+  #transcript:empty{display:none}
+  #reply{font-size:16px;line-height:1.55;text-align:center;max-height:20vh;overflow-y:auto;padding:0 12px;scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;text-wrap:pretty}
+  #reply:empty{display:none}
+  #reply b{font-weight:600;color:#fff}
+  #reply code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;background:var(--tile);padding:1px 6px;border-radius:6px}
+  #reply.err{color:var(--red)}
+
+  /* ── композер ── */
+  #composer{width:min(760px,100%);height:76px;border-radius:999px;background:rgba(10,13,22,.72);border:1px solid var(--line-2);
+    backdrop-filter:blur(24px) saturate(150%);-webkit-backdrop-filter:blur(24px) saturate(150%);
+    display:flex;align-items:center;gap:14px;padding:10px 10px 10px 12px;box-shadow:0 30px 80px -20px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.05);transition:border-color .25s}
+  #composer:focus-within{border-color:rgba(94,231,255,.35)}
+  #composer .spark{width:52px;height:52px;border-radius:50%;background:var(--tile);border:1px solid var(--line);display:grid;place-items:center;color:var(--cyan);flex:none}
+  #composer .spark svg{width:20px;height:20px;fill:currentColor}
+  #input{flex:1 1 200px;font-size:18px;min-width:160px;color:var(--text)}
+  #input::placeholder{color:var(--text-3)}
+  #wave{width:300px;height:40px;flex:0 1 300px;min-width:0}
+  #mainBtn{width:56px;height:56px;border-radius:50%;background:var(--tile);border:1px solid var(--line-2);display:grid;place-items:center;color:var(--text);flex:none;transition:.2s}
+  #mainBtn:hover{background:rgba(255,255,255,.1)}
+  #mainBtn.send{background:var(--cyan);color:#062028;border-color:transparent}
+  #mainBtn.rec{background:rgba(248,113,113,.18);color:var(--red);border-color:rgba(248,113,113,.4)}
+  #mainBtn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  #mainBtn .ic-send{display:none}#mainBtn.send .ic-send{display:block}#mainBtn.send .ic-mic{display:none}
+  .tools{display:flex;align-items:center;gap:2px;flex:none}
+  .tools button{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--text-3)}
+  .tools button:hover{color:var(--text);background:var(--tile)}
+  .tools button.active{color:var(--cyan)}
+  .tools svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+  /* ── тосты ── */
+  #toasts{position:fixed;top:76px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:20;pointer-events:none;align-items:center}
+  .toast{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:10px 16px 10px 12px;border-radius:14px;background:rgba(14,18,28,.85);border:1px solid var(--line-2);
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 20px 50px -10px rgba(0,0,0,.6);font-size:13.5px;animation:in .35s var(--ease);max-width:520px;transition:opacity .4s}
+  .toast .tile{width:30px;height:30px;border-radius:9px}
+  .toast .tile svg{width:15px;height:15px}
+
+  /* ── boot ── */
+  #boot{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:50;transition:opacity .9s ease}
+  #boot.hide{opacity:0;pointer-events:none}
+  #boot .wordmark{font-size:22px;opacity:0;animation:fade 1.4s ease forwards}
 
   /* лента активности */
-  .feed{display:flex;flex-direction:column;gap:6px}
-  .ev{display:grid;grid-template-columns:44px 1fr;gap:8px;font-family:var(--mono);font-size:11px;line-height:1.4;animation:evIn .3s var(--ease)}
+  .ev{display:grid;grid-template-columns:42px 1fr;gap:10px;padding:7px 8px;font-size:12.5px;line-height:1.4;border-radius:10px}
   .ev .t{color:var(--text-3);font-variant-numeric:tabular-nums}
-  .ev .n{color:var(--text)}
-  .ev .n.tool{color:var(--cyan-soft)}
-  .ev .n.ok{color:var(--green)}
-  .ev .n.err{color:var(--red)}
-  .ev .a{color:var(--text-3);word-break:break-all;display:block;margin-top:1px}
+  .ev .n{color:var(--text-2);word-break:break-word}
+  .ev .n.tool{color:var(--text)}.ev .n.ok{color:var(--green)}.ev .n.err{color:var(--red)}
+  .ev .n small{display:block;color:var(--text-3);font-family:ui-monospace,Menlo,monospace;font-size:11px;margin-top:2px;word-break:break-all}
 
-  /* тосты (alert) */
-  #toasts{position:fixed;top:70px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:8;pointer-events:none}
-  .toast{pointer-events:auto;display:flex;align-items:center;gap:12px;padding:10px 16px 10px 12px;border-radius:999px;background:var(--glass);border:1px solid var(--amber-30);
-    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 12px 40px rgba(0,0,0,.45);font-size:13px;animation:cardIn .4s var(--ease)}
-  .toast i{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 12px var(--amber);flex:none}
-  .toast.ok{border-color:var(--cyan-30)}.toast.ok i{background:var(--cyan);box-shadow:0 0 12px var(--cyan)}
-
-  /* boot */
-  #boot{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:50;transition:opacity 1s ease}
-  #boot.hide{opacity:0;pointer-events:none}
-  #boot .w{display:flex;flex-direction:column;align-items:center;gap:26px}
-  #boot .brand b{font-size:20px;letter-spacing:.6em;margin-left:.6em}
-  #boot .lines{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--text-3);width:380px;height:130px;text-align:left}
-  #boot .lines span{color:var(--green)}
-  #boot .prog{width:380px;height:2px;background:var(--glass-2);border-radius:2px;overflow:hidden}
-  #boot .prog i{display:block;height:100%;width:0;background:var(--cyan);box-shadow:0 0 12px var(--cyan);transition:width .25s}
-
-  @keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(.985);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
-  @keyframes evIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
-  @media (max-width:980px){.dock{display:none}#kbd{display:none}}
-  @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important}}
+  @keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes fade{to{opacity:1}}
+  @media (max-width:1180px){#app{grid-template-columns:0 1fr 0;column-gap:0}.col{display:none}#wave{display:none}}
 </style>
 </head>
 <body>
 <div id="bg"></div>
+<div id="boot"><div class="wordmark">JARVIS</div></div>
 
-<div id="boot"><div class="w">
-  <div class="brand"><b>J.A.R.V.I.S.</b></div>
-  <div class="lines" id="bootLines"></div>
-  <div class="prog"><i id="bootBar"></i></div>
-</div></div>
+<div id="app">
+  <header>
+    <div class="wordmark">JARVIS</div>
+    <div class="hright">
+      <span class="chip" id="updChip" title="Доступно обновление">Обновление</span>
+      <span class="chip" id="modeChip"></span>
+      <span class="status" id="status"><i></i><span id="statusTx">Подключение…</span></span>
+      <span class="sep"></span>
+      <span id="clock">--:--</span>
+    </div>
+  </header>
 
-<header>
-  <div class="brand"><b>J.A.R.V.I.S.</b><small>HERMES CORE</small></div>
-  <div class="hstat">
-    <span class="chip upd" id="updChip" title="Доступно обновление">⬆ UPDATE</span>
-    <span><i class="dot" id="dHud"></i>HUD</span>
-    <span><i class="dot" id="dHermes"></i>API</span>
-    <span id="mode" class="normal">NORMAL</span>
-    <span id="clock">--:--</span>
+  <div class="col left" id="colL">
+    <section class="card" id="cardToday">
+      <div class="hd"><span class="tile"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><h2>Сегодня</h2><button class="more" title="Обновить" id="calRefresh"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>
+      <div class="bd" id="calBody"><div class="empty">Загрузка…</div></div>
+      <div class="ft"><button id="calAll"><span>Все события</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+    </section>
+    <section class="card" id="cardKnow">
+      <div class="hd"><span class="tile"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v16H6.5A2.5 2.5 0 0 0 4 21z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v16h5.5a2.5 2.5 0 0 1 2.5 2z"/></svg></span><h2>Знания</h2><button class="more" id="knowOpen" title="Открыть базу знаний (K)"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>
+      <div class="bd" id="knowBody"></div>
+    </section>
   </div>
-</header>
 
-<div class="dock left" id="dockL"></div>
-<div class="dock right" id="dockR"></div>
+  <div id="center">
+    <div id="orbWrap">
+      <div id="orb" title="Нажмите или удерживайте пробел — говорить"><canvas id="cv"></canvas><div id="orbState"></div></div>
+    </div>
+    <div id="centerCards"></div>
+    <div id="dialog"><div id="transcript"></div><div id="reply"></div></div>
+    <div id="composer">
+      <span class="spark"><svg viewBox="0 0 24 24"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" opacity=".7"/></svg></span>
+      <input id="input" placeholder="Спросите JARVIS…" autocomplete="off" spellcheck="false">
+      <canvas id="wave" width="680" height="80"></canvas>
+      <span class="tools">
+        <button id="ttsBtn" title="Озвучивать ответы (T)"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></button>
+        <button id="helpBtn" title="Клавиши (?)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/></svg></button>
+      </span>
+      <button id="mainBtn" title="Говорить / отправить"><svg class="ic-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><svg class="ic-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    </div>
+  </div>
+
+  <div class="col right" id="colR">
+    <section class="card" id="cardSys">
+      <div class="hd"><span class="tile"><svg viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg></span><h2>Система</h2><button class="more" id="sysMore" title="Лента активности (A)"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>
+      <div class="bd" id="sysBody"></div>
+    </section>
+    <section class="card" id="cardTimers">
+      <div class="hd"><span class="tile"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg></span><h2>Таймеры</h2><button class="more" id="timersMore" title="Отменить все"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button></div>
+      <div class="bd" id="timersBody"></div>
+      <form class="tform" id="tform"><input class="n" id="tMin" type="number" min="1" max="1440" placeholder="мин"><input id="tLabel" placeholder="Название"><button type="submit">Ок</button></form>
+      <div class="ft"><button id="timerAdd"><span style="display:flex;align-items:center;gap:10px"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Добавить таймер</span></button></div>
+    </section>
+  </div>
+</div>
 <div id="toasts"></div>
-
-<div id="stage">
-  <div id="core" class="idle" title="Нажмите или удерживайте пробел — говорить">
-    <canvas id="cv"></canvas>
-    <div id="stateLbl">standby</div>
-    <div id="hint">нажмите на реактор или удерживайте <b>пробел</b>, чтобы говорить</div>
-  </div>
-  <div id="dialog">
-    <div id="transcript"></div>
-    <div id="reply"></div>
-  </div>
-</div>
-
-<div id="composer">
-  <svg class="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg>
-  <input id="input" placeholder="Спросите JARVIS…" autocomplete="off" spellcheck="false">
-  <canvas id="wave" width="240" height="52"></canvas>
-  <button class="ibtn" id="micBtn" title="Голос (Web Speech)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
-  <button class="ibtn" id="ttsBtn" title="Озвучивать ответы (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></button>
-  <button class="ibtn" id="brainBtn" title="База знаний (K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0-2 3 3 3 0 0 0 2 3v1a3 3 0 0 0 3 3h1V4H9zM15 4a3 3 0 0 1 3 3v1a3 3 0 0 1 2 3 3 3 0 0 1-2 3v1a3 3 0 0 1-3 3h-1V4h1z"/></svg></button>
-  <button class="ibtn primary" id="sendBtn" title="Отправить"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
-</div>
-<div id="kbd"><kbd>space</kbd> говорить · <kbd>A</kbd> активность · <kbd>S</kbd> система · <kbd>K</kbd> знания · <kbd>esc</kbd> очистить</div>
 
 <script>
 (() => {
-  // ───────────────────────── util ─────────────────────────
+  // ───────────────────────── утилиты ─────────────────────────
   const $ = s => document.querySelector(s);
-  const core = $('#core'), stateLbl = $('#stateLbl'), transcript = $('#transcript'), reply = $('#reply');
-  const dockL = $('#dockL'), dockR = $('#dockR');
-  const stats = {turns:0, tools:0, clients:0, model:'—', session:'—', brain:'—', brainLast:'—'};
-  const now = () => new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  setInterval(()=>{$('#clock').textContent=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})},1000);
+  const now = () => new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+  const mdLite = s => esc(s).replace(/^### (.*)$/gm,'<h4>$1</h4>').replace(/^## (.*)$/gm,'<h3>$1</h3>').replace(/^# (.*)$/gm,'<h2>$1</h2>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>').replace(/^- (.*)$/gm,'• $1').replace(/\n/g,'<br>');
+  const post = (url, body) => fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(r=>r.json());
+  const ICON = {
+    cal:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+    users:'<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0M16 4.5a3.2 3.2 0 0 1 0 6.4M21 20a6 6 0 0 0-5-5.9"/></svg>',
+    chart:'<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+    bolt:'<svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
+    batt:'<svg viewBox="0 0 24 24"><rect x="2.5" y="7" width="17" height="10" rx="2.5"/><path d="M22 10.5v3"/><rect x="5" y="9.5" width="8" height="5" rx="1" fill="currentColor" stroke="none"/></svg>',
+    moon:'<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+    box:'<svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>',
+    tag:'<svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg>',
+    play:'<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
+    x:'<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    bell:'<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 21h4"/></svg>',
+    up:'<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  };
+  setInterval(()=>{$('#clock').textContent=now()},1000); $('#clock').textContent=now();
 
-  // ───────────────────────── реактор (Canvas) ─────────────────────────
-  // Состояния: idle · listening · thinking · speaking. Энергия (0..1) тянется к целевому уровню,
-  // амплитуда голоса приходит из микрофона (AnalyserNode), если он есть, иначе синтетическая.
-  const cv = $('#cv'), ctx = cv.getContext('2d');
-  let state = 'idle', energy = 0, targetEnergy = 0.15, voiceAmp = 0, t0 = performance.now();
-  const rings = [
-    {r:.96, w:1,   seg:[.06,.12,.32,.1], speed:.05,  op:.35},
-    {r:.86, w:3,   seg:[.02,.05],         speed:-.09, op:.55},
-    {r:.74, w:1.2, seg:[.45,.1,.15,.1],   speed:.13,  op:.5},
-    {r:.62, w:8,   seg:[.008,.03],        speed:-.04, op:.22},
-    {r:.52, w:1,   seg:[.8,.2],           speed:.3,   op:.45},
-  ];
-  function resize(){ const s = core.clientWidth * 1.6, d = devicePixelRatio || 1; cv.width = s*d; cv.height = s*d; ctx.setTransform(d,0,0,d,0,0); }
+  // ───────────────────────── сфера (Canvas) ─────────────────────────
+  // Состояния: idle · listening · thinking · speaking. energy — общий уровень активности,
+  // voiceAmp — громкость с микрофона (AnalyserNode) или синтетическая при озвучке.
+  const orb = $('#orb'), cv = $('#cv'), cx2 = cv.getContext('2d'), orbState = $('#orbState');
+  let state='idle', energy=.2, targetEnergy=.2, voiceAmp=0, hue=0, targetHue=0;
+  const particles = Array.from({length:900}, () => { const a=Math.random()*Math.PI*2, r=Math.sqrt(Math.random()); return {a, r, s:Math.random()*1.4+.4, o:Math.random()}; });
+  const orbits = [{tilt:.35, rot:.2, speed:.12, dots:3}, {tilt:.6, rot:1.9, speed:-.09, dots:2}, {tilt:.25, rot:-1.1, speed:.07, dots:2}];
+  function resize(){ const s = orb.clientWidth*1.8, d = devicePixelRatio||1; cv.width=s*d; cv.height=s*d; cx2.setTransform(d,0,0,d,0,0); }
   addEventListener('resize', resize); resize();
+  const STATE_TX = {idle:'', listening:'Слушаю…', thinking:'Думаю…', speaking:'Говорю'};
   function setState(s, label){
-    state = s || 'idle'; core.className = state; stateLbl.textContent = label || (state === 'idle' ? 'standby' : state);
-    targetEnergy = {idle:.15, listening:.55, thinking:.75, speaking:.9}[state] ?? .15;
+    state = s; orb.className = s;
+    targetEnergy = {idle:.2, listening:.55, thinking:.8, speaking:.6}[s];
+    targetHue = s==='thinking' ? 1 : 0;
+    orbState.textContent = label || STATE_TX[s]; orbState.classList.toggle('show', s!=='idle');
   }
-  function draw(now){
-    const t = (now - t0) / 1000; const S = cv.width / (devicePixelRatio||1); const c = S/2; const R = S * .31;
-    energy += (targetEnergy - energy) * .04;
-    const amp = state === 'listening' || state === 'speaking' ? voiceAmp : 0;
-    const beat = state === 'thinking' ? (Math.sin(t*6)*.5+.5)*.35 : 0;
-    const e = Math.min(1, energy + amp*.6 + beat);
-    ctx.clearRect(0,0,S,S);
-    // внешнее свечение
-    const glow = ctx.createRadialGradient(c,c,R*.1,c,c,R*1.45);
-    glow.addColorStop(0, `rgba(55,230,255,${.10+e*.18})`); glow.addColorStop(.55, `rgba(55,230,255,${.04+e*.06})`); glow.addColorStop(1,'rgba(55,230,255,0)');
-    ctx.fillStyle = glow; ctx.fillRect(0,0,S,S);
-    // кольца
-    for (const g of rings){
-      const rr = R*g.r*(1 + amp*.04*(g.r)); const rot = t*g.speed*Math.PI*2*(1+e*.6);
-      ctx.save(); ctx.translate(c,c); ctx.rotate(rot); ctx.lineWidth = g.w; ctx.lineCap = 'butt';
-      ctx.strokeStyle = state === 'thinking' && g.r === .86 ? `rgba(255,181,71,${g.op+e*.35})` : `rgba(55,230,255,${g.op+e*.35})`;
-      ctx.setLineDash(g.seg.map(x=>x*rr*2*Math.PI)); ctx.beginPath(); ctx.arc(0,0,rr,0,Math.PI*2); ctx.stroke(); ctx.restore();
+  function draw(t){
+    const W = cv.width/(devicePixelRatio||1), c = W/2, R = W/1.8/2;   // радиус сферы = половина ширины #orb
+    energy += (targetEnergy-energy)*.04; hue += (targetHue-hue)*.05;
+    const amp = state==='speaking' ? (Math.sin(t/90)*.5+.5)*(Math.sin(t/230)*.5+.5)*.6 : voiceAmp;
+    const rr = R*(1 + amp*.06 + Math.sin(t/1600)*.008);
+    cx2.clearRect(0,0,W,W);
+    // ореол
+    const halo = cx2.createRadialGradient(c,c,rr*.7,c,c,rr*2.2);
+    halo.addColorStop(0,`rgba(90,170,255,${.34+energy*.15+amp*.2})`); halo.addColorStop(.5,'rgba(110,100,255,.08)'); halo.addColorStop(1,'rgba(0,0,0,0)');
+    cx2.fillStyle=halo; cx2.fillRect(0,0,W,W);
+    // тело сферы: циан слева-сверху → фиолет справа-снизу
+    const g = cx2.createRadialGradient(c-rr*.35,c-rr*.4,rr*.05,c,c,rr);
+    const cyan = `hsl(${192-hue*30},100%,${74+amp*8}%)`;
+    g.addColorStop(0,cyan); g.addColorStop(.3,`hsl(${200-hue*20},95%,68%)`); g.addColorStop(.72,`hsl(${235-hue*10},80%,58%)`); g.addColorStop(1,'hsl(255,65%,38%)');
+    cx2.beginPath(); cx2.arc(c,c,rr,0,Math.PI*2); cx2.fillStyle=g; cx2.fill();
+    // зерно
+    for (const p of particles){
+      const ang = p.a + t*.00004*(1+p.r), x = c + Math.cos(ang)*p.r*rr, y = c + Math.sin(ang)*p.r*rr*.98;
+      const tw = .35 + .65*Math.abs(Math.sin(t*.001*p.s + p.o*7));
+      cx2.fillStyle = `rgba(255,255,255,${(.25+energy*.45)*tw*(1-p.r*.45)})`; cx2.fillRect(x,y,p.s,p.s);
     }
-    // риски
-    ctx.save(); ctx.translate(c,c);
-    for (let i=0;i<72;i++){ const a=i/72*Math.PI*2; const big=i%6===0; const r1=R*(big?.985:1.0), r2=R*1.03;
-      ctx.strokeStyle=`rgba(55,230,255,${big?.5:.22})`; ctx.lineWidth=big?1.4:.7; ctx.beginPath(); ctx.moveTo(Math.cos(a)*r1,Math.sin(a)*r1); ctx.lineTo(Math.cos(a)*r2,Math.sin(a)*r2); ctx.stroke(); }
-    ctx.restore();
-    // равномерный «прогресс» по кольцу в thinking
-    if (state === 'thinking'){ ctx.save(); ctx.translate(c,c); ctx.rotate(t*1.6); ctx.strokeStyle='rgba(255,181,71,.9)'; ctx.lineWidth=2; ctx.shadowColor='rgba(255,181,71,.8)'; ctx.shadowBlur=14; ctx.beginPath(); ctx.arc(0,0,R*.86,0,Math.PI*.35); ctx.stroke(); ctx.restore(); }
-    // сегменты ядра (10 лепестков, как в реакторе)
-    ctx.save(); ctx.translate(c,c); ctx.rotate(-t*.12);
-    for (let i=0;i<10;i++){ const a0=i/10*Math.PI*2+.06, a1=(i+1)/10*Math.PI*2-.06; const ri=R*.36, ro=R*.44;
-      ctx.beginPath(); ctx.arc(0,0,ro,a0,a1); ctx.arc(0,0,ri,a1,a0,true); ctx.closePath();
-      ctx.fillStyle=`rgba(55,230,255,${.18+e*.5*(Math.sin(t*3+i)*.3+.7)})`; ctx.fill(); }
-    ctx.restore();
-    // ядро: голубое с янтарным центром, пульсирует от голоса
-    const cr = R*.30*(1+amp*.18+(state==='idle'?Math.sin(t*1.4)*.02:0));
-    const cg = ctx.createRadialGradient(c,c,0,c,c,cr);
-    cg.addColorStop(0,'rgba(255,255,255,1)'); cg.addColorStop(.18,`rgba(255,${200-e*40},${120-e*60},${.95})`); cg.addColorStop(.42,'rgba(123,233,255,.95)'); cg.addColorStop(1,'rgba(55,230,255,0)');
-    ctx.shadowColor='rgba(55,230,255,.9)'; ctx.shadowBlur=30+e*40; ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(c,c,cr,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
-    // волновая линия в listening/speaking
-    if (amp > .02){ ctx.save(); ctx.translate(c,c); ctx.strokeStyle=`rgba(233,244,250,${.5+amp})`; ctx.lineWidth=1.2; ctx.beginPath();
-      for (let x=-R*.22;x<=R*.22;x+=2){ const k=(x/(R*.22)); const y=Math.sin(x*.25+t*30)*amp*R*.12*(1-k*k); ctx.lineTo(x,y);} ctx.stroke(); ctx.restore(); }
+    // блик и тень краёв
+    const rim = cx2.createRadialGradient(c,c,rr*.82,c,c,rr); rim.addColorStop(0,'rgba(0,0,0,0)'); rim.addColorStop(1,'rgba(10,10,40,.4)');
+    cx2.beginPath(); cx2.arc(c,c,rr,0,Math.PI*2); cx2.fillStyle=rim; cx2.fill();
+    const hl = cx2.createRadialGradient(c-rr*.3,c-rr*.35,0,c-rr*.3,c-rr*.35,rr*.7); hl.addColorStop(0,'rgba(255,255,255,.35)'); hl.addColorStop(1,'rgba(255,255,255,0)');
+    cx2.beginPath(); cx2.arc(c,c,rr,0,Math.PI*2); cx2.fillStyle=hl; cx2.fill();
+    // орбиты
+    const spin = state==='thinking' ? 2.6 : 1;
+    for (const o of orbits){
+      const rot = o.rot + t*.0001*o.speed*spin*10, ry = rr*1.28*o.tilt, rx = rr*1.28;
+      cx2.save(); cx2.translate(c,c); cx2.rotate(rot);
+      cx2.beginPath(); cx2.ellipse(0,0,rx,ry,0,0,Math.PI*2); cx2.strokeStyle=`rgba(150,190,255,${.18+energy*.15})`; cx2.lineWidth=1; cx2.stroke();
+      for (let i=0;i<o.dots;i++){
+        const ph = t*.0004*o.speed*spin*10 + i*Math.PI*2/o.dots, x=Math.cos(ph)*rx, y=Math.sin(ph)*ry;
+        const front = Math.sin(ph) > 0;
+        cx2.beginPath(); cx2.arc(x,y,front?2.6:1.6,0,Math.PI*2); cx2.fillStyle=front?'#fff':'rgba(200,220,255,.5)'; cx2.shadowColor='#8fd3ff'; cx2.shadowBlur=front?14:0; cx2.fill(); cx2.shadowBlur=0;
+      }
+      cx2.restore();
+    }
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
 
-  // микрофонная амплитуда для реактора и волны в композере (только пока идёт распознавание)
-  let audioCtx, analyser, micStream, ampTimer;
-  async function micAmpStart(){
+  // ───────────────────────── микрофон → амплитуда + волна ─────────────────────────
+  const wave = $('#wave'), wctx = wave.getContext('2d');
+  let audioCtx, analyser, micStream, freq;
+  async function attachMic(){
+    if (analyser) return true;
     try { audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)(); micStream = await navigator.mediaDevices.getUserMedia({audio:true});
-      analyser = audioCtx.createAnalyser(); analyser.fftSize = 256; audioCtx.createMediaStreamSource(micStream).connect(analyser);
-      const buf = new Uint8Array(analyser.frequencyBinCount);
-      ampTimer = setInterval(()=>{ analyser.getByteTimeDomainData(buf); let s=0; for (const v of buf){ const d=(v-128)/128; s+=d*d; } voiceAmp = Math.min(1, Math.sqrt(s/buf.length)*4); drawWave(buf); }, 40);
-    } catch { voiceAmp = 0; }
+      const src = audioCtx.createMediaStreamSource(micStream); analyser = audioCtx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant=.7; src.connect(analyser); freq = new Uint8Array(analyser.frequencyBinCount); return true; }
+    catch (e) { return false; }
   }
-  function micAmpStop(){ clearInterval(ampTimer); micStream?.getTracks().forEach(t=>t.stop()); micStream=null; voiceAmp=0; drawWave(null); }
-  const wv = $('#wave'), wctx = wv.getContext('2d');
-  function drawWave(buf){ wctx.clearRect(0,0,wv.width,wv.height); wctx.strokeStyle='#37e6ff'; wctx.lineWidth=2; wctx.beginPath();
-    const n = 48; for (let i=0;i<n;i++){ const x=i/(n-1)*wv.width; let a = buf ? Math.abs(buf[Math.floor(i/n*buf.length)]-128)/128 : (state==='speaking'? (Math.sin(performance.now()/90+i*.8)*.5+.5)*.5 : .06);
-      const h = Math.max(2, a*wv.height*.9); wctx.moveTo(x, wv.height/2-h/2); wctx.lineTo(x, wv.height/2+h/2);} wctx.stroke(); }
-  setInterval(()=>{ if(!micStream) drawWave(null); }, 90);
+  function drawWave(t){
+    const W = wave.width, H = wave.height, n = 64, gap = W/n; wctx.clearRect(0,0,W,H);
+    const g = wctx.createLinearGradient(0,0,W,0); g.addColorStop(0,'rgba(94,231,255,.9)'); g.addColorStop(1,'rgba(139,124,255,.9)'); wctx.fillStyle=g;
+    let sum=0;
+    if (analyser && (state==='listening')) { analyser.getByteFrequencyData(freq); }
+    for (let i=0;i<n;i++){
+      let v;
+      if (analyser && state==='listening') { v = freq[Math.floor(i*freq.length/n*.6)]/255; sum+=v; }
+      else if (state==='speaking' || state==='thinking') v = (Math.sin(t/140+i*.6)*.5+.5)*(Math.sin(t/900+i*.2)*.5+.5)*.8;
+      else v = .06 + Math.abs(Math.sin(i*1.7+t/2200))*.08;
+      const h = Math.max(3, v*H*.9), x = i*gap + gap*.3;
+      wctx.globalAlpha = .35 + v*.65; wctx.beginPath(); wctx.roundRect(x, H/2-h/2, gap*.4, h, 2); wctx.fill();
+    }
+    wctx.globalAlpha=1; if (analyser && state==='listening') voiceAmp = voiceAmp*.7 + Math.min(1,(sum/n)*2.2)*.3; else voiceAmp*=.9;
+    requestAnimationFrame(drawWave);
+  }
+  requestAnimationFrame(drawWave);
 
-  // ───────────────────────── карточки ─────────────────────────
-  // card(id, {title, html, dock:'left'|'right'|'center', ttl}) — одна карточка на id (обновляется на месте)
-  const cards = new Map();
+  // ───────────────────────── карточки центра / тосты ─────────────────────────
+  const centerCards = $('#centerCards'), cards = new Map();
   function card(id, o){
     let el = cards.get(id);
-    const html = `<div class="hd"><h3><i></i>${esc(o.title||id).toUpperCase()}</h3><button class="x" title="закрыть">✕</button></div><div class="bd">${o.html||''}</div>`;
-    if (el){ el.innerHTML = html; }
-    else {
-      el = document.createElement('section'); el.className = 'card' + (o.dock==='center'?' big':''); el.dataset.id = id; el.innerHTML = html;
-      (o.dock==='left'?dockL:o.dock==='right'?dockR:document.body).appendChild(el); cards.set(id, el);
-      if (o.dock==='center') document.body.classList.add('has-center');
-    }
-    el.querySelector('.x').onclick = () => closeCard(id);
-    clearTimeout(el._ttl); if (o.ttl > 0) el._ttl = setTimeout(()=>closeCard(id), o.ttl*1000);
+    const html = `<div class="hd">${o.icon?`<span class="tile ${o.tone||''}">${o.icon}</span>`:''}<h2>${esc(o.title||'')}</h2><button class="more x" title="Закрыть">${ICON.x.replace('<svg','<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"')}</button></div><div class="bd">${o.html||''}</div>`;
+    if (!el){ el = document.createElement('section'); el.className='card'; el.dataset.id=id; (o.dock==='left'?$('#colL'):o.dock==='right'?$('#colR'):centerCards).appendChild(el); cards.set(id, el); }
+    el.innerHTML = html; el.querySelector('.x').onclick = () => closeCard(id);
+    document.body.classList.toggle('has-center', !!centerCards.querySelector('.card'));
+    clearTimeout(el._ttl); if (o.ttl>0) el._ttl = setTimeout(()=>closeCard(id), o.ttl*1000);
     return el;
   }
-  function closeCard(id){ const el = cards.get(id); if (!el) return; el.classList.add('leaving'); setTimeout(()=>{ el.remove(); cards.delete(id); if (!document.querySelector('.card.big')) document.body.classList.remove('has-center'); }, 350); }
-  function toggleCard(id, render){ cards.has(id) ? closeCard(id) : render(); }
-  function toast(text, kind, ttl=8){ const el=document.createElement('div'); el.className='toast '+(kind||''); el.innerHTML=`<i></i><span>${esc(text)}</span>`; $('#toasts').appendChild(el); setTimeout(()=>{el.style.opacity=0; setTimeout(()=>el.remove(),400)}, ttl*1000); }
+  function closeCard(id){ const el=cards.get(id); if(!el) return; el.classList.add('leaving'); setTimeout(()=>{ el.remove(); cards.delete(id); document.body.classList.toggle('has-center', !!centerCards.querySelector('.card')); }, 300); }
+  function closeCenter(){ [...cards.keys()].forEach(id => { if (centerCards.contains(cards.get(id))) closeCard(id); }); }
+  function toast(text, icon='bell', tone='amber', ttl=10){ const el=document.createElement('div'); el.className='toast'; el.innerHTML=`<span class="tile ${tone}">${ICON[icon]}</span><span>${esc(text)}</span>`; $('#toasts').appendChild(el); setTimeout(()=>{el.style.opacity=0; setTimeout(()=>el.remove(),400)}, ttl*1000); }
 
-  // ── ACTIVITY (лента действий агента) ──
-  const feedItems = [];
-  function log(cls, html){ feedItems.unshift({t:now(), cls, html}); if (feedItems.length>80) feedItems.pop(); if (cards.has('activity')) renderActivity(); }
-  function renderActivity(){
-    card('activity', {title:'Activity', dock:'left', html: feedItems.length ? `<div class="feed">${feedItems.map(e=>`<div class="ev"><span class="t">${e.t.slice(0,5)}</span><span class="n ${e.cls}">${e.html}</span></div>`).join('')}</div>` : '<span class="muted">пока тихо</span>'});
+  // ───────────────────────── дашборд (реальные данные) ─────────────────────────
+  let dash = {};
+  const fmtLeft = s => s>=3600 ? `${Math.floor(s/3600)}:${String(Math.floor(s%3600/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}` : `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  function renderCalendar(){
+    const ev = dash.calendar, b = $('#calBody');
+    if (ev === undefined) { b.innerHTML = '<div class="empty">Загрузка…</div>'; return; }
+    if (ev === null) { b.innerHTML = '<div class="empty">Нет доступа к Календарю.<br><b>Системные настройки → Конфиденциальность → Автоматизация</b> — разрешите Terminal/JARVIS управлять Calendar.</div>'; return; }
+    if (!ev.length) { b.innerHTML = '<div class="empty">Сегодня событий нет</div>'; return; }
+    const nowHM = now(); const icons=[ICON.users, ICON.chart, ICON.cal, ICON.bolt]; const tones=['cyan','violet','green','amber'];
+    b.innerHTML = ev.slice(0,6).map((e,i) => { const past = !e.all_day && e.end < nowHM; return `<div class="row" style="${past?'opacity:.45':''}"><span class="tile ${tones[i%4]}">${icons[i%4]}</span><span class="tx"><b>${esc(e.title)}</b><small>${esc(e.calendar)}${e.all_day?' · весь день':' · до '+esc(e.end)}</small></span><span class="rt">${e.all_day?'—':esc(e.start)}<i class="${tones[i%4]}"></i></span></div>`; }).join('');
   }
-  // ── SYSTEM ──
-  const ring = (pct, color) => { const r=17, c=2*Math.PI*r; return `<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="${r}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3"/><circle cx="22" cy="22" r="${r}" fill="none" stroke="${color||'var(--cyan)'}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${c*pct/100} ${c}" transform="rotate(-90 22 22)"/></svg>`; };
-  let sys = {battery:null, charging:false};
+  function renderKnowledge(){
+    const k = dash.brain, b = $('#knowBody');
+    if (!k) { b.innerHTML = '<div class="empty">База знаний пока пуста.<br>Скажите <b>«запомни…»</b> — JARVIS начнёт её вести.</div>'; return; }
+    const total = k.notes + k.pending, pct = total ? Math.round(k.notes/total*100) : 100;
+    b.innerHTML = `<div class="stats"><div class="stat"><small>Заметки</small><b>${k.notes}</b></div><div class="stat"><small>Карточки</small><b>${k.cards}</b></div></div>
+      <div class="kbase"><div class="l"><span>Обработано</span><b>${pct}%</b></div><div class="prog"><i style="width:${pct}%"></i></div></div>`;
+  }
   function renderSystem(){
-    card('system', {title:'System', dock:'right', html:
-      (sys.battery!=null ? `<div class="gauge">${ring(sys.battery, sys.battery<20?'var(--red)':'var(--cyan)')}<div><div class="lbl">BATTERY${sys.charging?' · ⚡':''}</div><div class="val">${sys.battery}%</div></div></div>` : '') +
-      `<div class="kv"><span>Model</span><b>${esc(stats.model)}</b></div>
-       <div class="kv"><span>Session</span><b>${esc(String(stats.session).slice(0,8))}</b></div>
-       <div class="kv"><span>Turns / tools</span><b>${stats.turns} / ${stats.tools}</b></div>
-       <div class="kv"><span>Knowledge</span><b>${esc(stats.brain)}</b></div>
-       <div class="kv"><span>HUD clients</span><b>${stats.clients}</b></div>`});
+    const b = $('#sysBody'), bt = dash.battery, f = dash.focus, mode = dash.mode||'normal', v = dash.version||{};
+    const pct = bt ? bt.percent : null, tone = pct===null?'':pct<=20?'red':pct<=40?'amber':'green';
+    const battRow = `<div class="row sys"><span class="tile green">${ICON.batt}</span><span class="tx"><div style="display:flex;justify-content:space-between;align-items:center"><b>Батарея</b><span class="pct ${tone}">${pct===null?'—':pct+'%'}</span></div><div class="prog ${tone}"><i style="width:${pct??0}%"></i></div>${bt&&(bt.charging||bt.remaining)?`<small>${bt.charging?'заряжается':'осталось '+bt.remaining}</small>`:''}</span></div>`;
+    const focusOn = mode==='focus'; const fname = f && f.active ? f.name : '';
+    const focusRow = `<div class="row sys"><span class="tile violet">${ICON.moon}</span><span class="tx"><b>Режим фокуса</b><small>${focusOn?'JARVIS отвечает кратко':(fname?'macOS: '+esc(fname):'уведомления и подсказки включены')}</small></span><button class="pill ${focusOn?'on':''}" id="focusToggle">${focusOn?'Вкл':'Выкл'}</button></div>`;
+    const modelRow = `<div class="row sys"><span class="tile">${ICON.box}</span><span class="tx"><small style="margin:0 0 2px">Модель</small><b>${esc(dash.model||'—')}</b></span><span class="chev">${v.version?`<span class="muted" style="font-size:12px">v${esc(v.version)}</span>`:''}</span></div>`;
+    b.innerHTML = battRow + focusRow + modelRow;
+    $('#focusToggle').onclick = async () => { const m = focusOn?'normal':'focus'; dash.mode = m; renderSystem(); await post('/api/mode',{mode:m}); };
+    $('#modeChip').textContent = {focus:'Фокус', night:'Ночь', presentation:'Презентация'}[mode]||''; $('#modeChip').classList.toggle('show', mode!=='normal');
+    document.body.classList.toggle('night', mode==='night');
+    $('#updChip').classList.toggle('show', !!v.update_available); if (v.latest) $('#updChip').textContent = 'Обновление ' + v.latest;
   }
-  // ── BRAIN ──
-  async function showBrain(q){
-    try {
-      const r = await fetch('/api/brain' + (q ? '?q=' + encodeURIComponent(q) : '')); const b = await r.json();
-      if (!b.ok) { toast('База знаний ещё пуста — скажите «запомни…»'); return; }
-      stats.brain = `${b.notes} · ${b.entities}`;
-      const kinds = b.kinds.map(k=>`<span class="tag">${esc(k.kind)}<b>${k.n}</b></span>`).join('');
-      const ents = b.top_entities.map(e=>`<li><b>${esc(e.name)}</b> <span class="muted">${esc(e.kind)} · ${e.notes}</span></li>`).join('');
-      const recent = (b.search || b.recent).map(n=>`<li><span class="muted">#${n.id} ${esc(n.kind)}${n.entity? ' · '+esc(n.entity):''}</span><br>${esc(n.content)}</li>`).join('');
-      const diary = b.diary.map(d=>`<li><b>${esc(d.day)}</b> ${esc(d.summary)}</li>`).join('');
-      const fails = (b.failures||[]).map(f=>`<li><b>${f.count}×</b> ${esc(f.tool)} <span class="muted">${esc((f.message||'').slice(0,60))}</span></li>`).join('');
-      const hist = (b.history||[]).map(h=>`<li><span class="muted">${esc(h.valid_from||'')} → ${esc(h.valid_until||'')}</span> ${esc(h.content)}</li>`).join('');
-      const lr = b.last_review ? `${esc(b.last_review.finished_at.slice(0,16).replace('T',' '))} — ${esc(b.last_review.report||'')}` : 'ещё не было';
-      card('brain', {title: q ? `Brain · ${q}` : 'Brain · база знаний', dock:'center', html:
-        `<div style="display:grid;grid-template-columns:1fr 1.2fr;gap:20px">
-          <div><div class="sec">ТИПЫ</div>${kinds}<div class="sec">КАРТОЧКИ</div><ul>${ents||'<li class="muted">—</li>'}</ul><div class="sec">ДНЕВНИК</div><ul>${diary||'<li class="muted">—</li>'}</ul></div>
-          <div><div class="sec">${q?'НАЙДЕНО':'ПОСЛЕДНИЕ ЗАПИСИ'}</div><ul>${recent||'<li class="muted">—</li>'}</ul>
-            ${hist?`<div class="sec">БЫЛО РАНЬШЕ</div><ul>${hist}</ul>`:''}${fails?`<div class="sec warn">СБОИ ИНСТРУМЕНТОВ</div><ul>${fails}</ul>`:''}</div>
-         </div><div class="muted" style="margin-top:12px;font-size:11px">ходов ждут ревизии: ${b.pending_turns} · последняя ревизия: ${lr}</div>`});
-    } catch(e){ console.warn(e); }
+  function renderTimers(){
+    const b = $('#timersBody'), ts = dash.timers||[];
+    if (!ts.length) { b.innerHTML = '<div class="empty">Нет активных таймеров</div>'; return; }
+    b.innerHTML = ts.map((t,i) => `<div class="row" data-target="${esc(t.target)}"><span class="ring ${i%2?'violet':''}">${ICON.play}</span><span class="tx"><b>${esc(t.label)}</b><small class="left" data-s="${t.seconds}">${fmtLeft(t.seconds)}</small></span><button class="xbtn" title="Отменить" data-label="${esc(t.label)}">${ICON.x}</button></div>`).join('');
+    b.querySelectorAll('.xbtn').forEach(x => x.onclick = async () => { await post('/api/timer',{action:'cancel', label:x.dataset.label, target:x.closest('.row').dataset.target}); loadDash(); });
   }
-  $('#brainBtn').onclick = () => toggleCard('brain', ()=>showBrain(''));
-  // deep links: /#brain, /#activity, /#system (их использует JARVIS.app)
-  function applyHash(){ const h=(location.hash||'').slice(1); if(h==='brain') showBrain(''); if(h==='activity') renderActivity(); if(h==='system') renderSystem(); }
-  window.addEventListener('hashchange', applyHash); setTimeout(applyHash, 1200);
+  setInterval(() => { document.querySelectorAll('#timersBody .left').forEach(el => { const s = Math.max(0, +el.dataset.s - 1); el.dataset.s = s; el.textContent = fmtLeft(s); }); }, 1000);
+  function renderAll(){ renderCalendar(); renderKnowledge(); renderSystem(); renderTimers(); }
+  async function loadDash(){ try { dash = await (await fetch('/api/dashboard')).json(); renderAll(); } catch {} }
+  loadDash(); setInterval(loadDash, 30000);
 
-  // ── универсальная панель от агента (jarvis_hud) ──
-  function ytEmbed(url){ const m = url.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([\w-]{11})/) || url.match(/^([\w-]{11})$/); return m ? `https://www.youtube.com/embed/${m[1]}?autoplay=1` : null; }
-  function mdLite(s){ return esc(s).replace(/^### (.*)$/gm,'<h4>$1</h4>').replace(/^## (.*)$/gm,'<h3>$1</h3>').replace(/^# (.*)$/gm,'<h2>$1</h2>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>').replace(/^- (.*)$/gm,'• $1').replace(/\n/g,'<br>'); }
+  $('#calRefresh').onclick = loadDash;
+  $('#calAll').onclick = () => send('Что у меня сегодня и завтра по календарю? Кратко, по времени.');
+  $('#knowOpen').onclick = () => showBrain('');
+  $('#sysMore').onclick = () => toggleActivity();
+  $('#timersMore').onclick = async () => { for (const t of dash.timers||[]) await post('/api/timer',{action:'cancel',label:t.label,target:t.target}); loadDash(); };
+  $('#timerAdd').onclick = () => { $('#tform').classList.toggle('show'); $('#tMin').focus(); };
+  $('#tform').onsubmit = async e => { e.preventDefault(); const m = +$('#tMin').value; if (!m) return; await post('/api/timer',{action:'set', minutes:m, label:$('#tLabel').value||`Таймер ${m} мин`}); $('#tform').classList.remove('show'); $('#tMin').value=''; $('#tLabel').value=''; loadDash(); };
+  $('#updChip').onclick = () => send('Обнови JARVIS до последней версии.');
+
+  // ───────────────────────── лента активности ─────────────────────────
+  const feed = [];
+  function log(cls, html){ feed.unshift({t:now(), cls, html}); if (feed.length>60) feed.pop(); if (cards.has('activity')) renderActivity(); }
+  function renderActivity(){ card('activity', {title:'Активность', dock:'right', icon:'<svg viewBox="0 0 24 24"><path d="M4 12h3l2-5 4 10 2-5h5"/></svg>', html: feed.length ? feed.map(e=>`<div class="ev"><span class="t">${e.t}</span><span class="n ${e.cls}">${e.html}</span></div>`).join('') : '<div class="empty">Пока тихо</div>'}).classList.add('grow'); }
+  function toggleActivity(){ cards.has('activity') ? closeCard('activity') : renderActivity(); }
+
+  // ───────────────────────── база знаний ─────────────────────────
+  async function showBrain(q){
+    let b; try { b = await (await fetch('/api/brain' + (q ? '?q=' + encodeURIComponent(q) : ''))).json(); } catch { return; }
+    const search = `<form class="search" id="brainSearch"><input placeholder="Поиск по базе знаний…" value="${esc(q)}"><button class="pill on" type="submit">Найти</button></form>`;
+    let body;
+    if (!b.ok) body = search + '<div class="empty">База знаний пока пуста. Скажите JARVIS <b>«запомни, что…»</b> или просто общайтесь — он сам заведёт заметки.</div>';
+    else {
+      const list = (b.search || b.recent).map(n=>`<li><span class="muted" style="font-size:12px">${esc(n.kind)}${n.entity?' · '+esc(n.entity):''}</span><br>${esc(n.content)}</li>`).join('') || '<li class="muted">Ничего не найдено</li>';
+      const ents = b.top_entities.map(e=>`<span class="tag">${esc(e.name)}<b>${e.notes}</b></span>`).join('');
+      const diary = b.diary.map(d=>`<li><b>${esc(d.day)}</b> — ${esc(d.summary)}</li>`).join('');
+      body = search + `<div class="sec">${q?'Результаты':'Недавнее'}</div><ul>${list}</ul>` + (ents?`<div class="sec">Карточки</div>${ents}`:'') + (diary?`<div class="sec">Дневник</div><ul>${diary}</ul>`:'') +
+        `<div class="sec">Статус</div><div class="kv"><span>Заметок · карточек · дней</span><b>${b.notes} · ${b.entities} · ${b.episodes}</b></div><div class="kv"><span>Последняя ревизия</span><b>${b.last_review? esc(b.last_review.finished_at.slice(0,16).replace('T',' ')) : 'ещё не было'}</b></div>`;
+    }
+    card('brain', {title: 'База знаний', icon:'<svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v16H6.5A2.5 2.5 0 0 0 4 21z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v16h5.5a2.5 2.5 0 0 1 2.5 2z"/></svg>', html: body});
+    $('#brainSearch').onsubmit = e => { e.preventDefault(); showBrain(e.target.querySelector('input').value); };
+  }
+
+  // ───────────────────────── панели от агента ─────────────────────────
+  const ytEmbed = url => { const m = url.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([\w-]{11})/) || url.match(/^([\w-]{11})$/); return m ? `https://www.youtube.com/embed/${m[1]}?autoplay=1` : null; };
   let panelSeq = 0;
   function showPanel(p){
     const c = p.content || ''; let body = '';
@@ -395,119 +478,123 @@
       default: body = `<div style="white-space:pre-wrap">${esc(c)}</div>`;
     }
     const pos = p.position === 'left' || p.position === 'right' ? p.position : 'center';
-    const id = pos === 'center' ? 'panel-center' : 'panel-' + (++panelSeq);
-    card(id, {title: p.title || p.kind || 'panel', dock: pos, html: body, ttl: p.ttl});
-    log('ok', `panel · ${esc(p.kind)} · ${esc(p.title||'')}`);
+    const id = p.id ? 'panel-' + String(p.id).replace(/[^\w-]/g,'') : pos === 'center' ? 'panel-center' : 'panel-' + (++panelSeq);
+    card(id, {title: p.title || {image:'Изображение',video:'Видео',web:'Страница',chart:'График'}[p.kind] || 'Панель', dock: pos, html: body, ttl: p.ttl});
+    log('ok', `панель · ${esc(p.title||p.kind)}`);
   }
-  function clearAll(){ [...cards.keys()].forEach(closeCard); reply.textContent=''; transcript.innerHTML=''; }
 
-  // ───────────────────────── boot ─────────────────────────
-  function boot(){
-    const b=$('#boot'), l=$('#bootLines'), bar=$('#bootBar'); b.classList.remove('hide'); l.innerHTML='';
-    const lines=['HERMES CORE ........ linking','memory subsystem ... online','knowledge base ..... mounted','macOS bridge ....... ready','voice pipeline ..... whisper / tts','HUD event bus ...... connected','all systems nominal'];
-    lines.forEach((t,i)=>setTimeout(()=>{ l.innerHTML+=`${t} <span>ok</span><br>`; bar.style.width=((i+1)/lines.length*100)+'%'; if(i===lines.length-1) setTimeout(()=>{ b.classList.add('hide'); speak('Системы в норме. Добро пожаловать, сэр.', true); },450)}, 150*i+250));
-  }
-  boot();
-
-  // ───────────────────────── SSE ─────────────────────────
-  let streamBuf = '';
+  // ───────────────────────── события от сервера (SSE) ─────────────────────────
+  const transcript = $('#transcript'), reply = $('#reply');
+  let streamBuf = '', es;
   function connect(){
-    const es = new EventSource('/events');
-    es.onopen = () => { $('#dHud').classList.add('on'); log('ok','HUD · event stream connected'); };
-    es.onerror = () => { $('#dHud').classList.remove('on'); };
-    const on = (name, fn) => es.addEventListener(name, e => { try { fn(JSON.parse(e.data).data || {}) } catch(err){ console.warn(err) } });
-    on('session.start', d => { stats.session = d.session||'—'; stats.model = d.model||stats.model; log('', `session ${esc((d.session||'').slice(0,8))} · ${esc(d.platform||'')}`); if (cards.has('system')) renderSystem(); });
-    on('turn.start', d => { stats.turns++; setState('thinking','processing'); streamBuf=''; reply.textContent=''; if (d.text && d.source!=='hud') transcript.innerHTML = `<span class="u">ВЫ</span>${esc(d.text)}`; });
-    on('stream.delta', d => { streamBuf += d.delta||''; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; setState('speaking','responding'); });
-    on('turn.end', d => { const txt = d.text||streamBuf; if (!streamBuf && d.text) reply.innerHTML = mdLite(d.text); setState('idle'); log('ok', `reply · ${esc(txt.slice(0,80))}`); if (d.source!=='hud') speak(txt); });
-    on('tool.start', d => { stats.tools++; setState('thinking', d.tool||'tool'); log('tool', `▶ ${esc(d.tool)}<span class="a">${esc(d.args||'')}</span>`); });
-    on('tool.end', d => log(d.ok===false?'err':'ok', `${d.ok===false?'✖':'✔'} ${esc(d.tool)}`));
+    es = new EventSource('/events');
+    const on = (n, f) => es.addEventListener(n, e => { let d={}; try { d = JSON.parse(e.data).data || {}; } catch {} f(d); });
+    es.onopen = () => setStatus(true);
+    es.onerror = () => { setStatus(false); es.close(); setTimeout(connect, 3000); };
+    on('turn.start', d => {
+      if (d.source === 'cron') { log('', `фон · ${esc(d.text||'задача')}`); return; }
+      setState('thinking'); streamBuf=''; reply.textContent=''; reply.classList.remove('err');
+      if (d.text && d.source!=='hud') transcript.textContent = d.text;
+    });
+    on('stream.delta', d => { if (state==='thinking') setState('speaking'); streamBuf += d.delta||''; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; });
+    on('stream.end', () => {});
+    on('turn.end', d => {
+      setState('idle');
+      if (d.source === 'cron') { if (d.text) { log('ok', `фон · ${esc(d.text.slice(0,90))}`); card('panel-cron', {title:'Фоновая задача', dock:'right', icon:ICON.bell, html: mdLite(d.text), ttl: 900}); } return; }
+      const txt = d.text||streamBuf; if (!streamBuf && d.text) reply.innerHTML = mdLite(d.text);
+      log('ok', `ответ · ${esc(txt.slice(0,90))}`); if (d.source!=='hud') speak(txt);
+    });
+    on('tool.start', d => { setState('thinking', {mac_calendar:'Смотрю календарь…', brain_recall:'Вспоминаю…', web_search:'Ищу в интернете…', terminal:'Выполняю команду…'}[d.tool] || `${d.tool}…`); log('tool', `${esc(d.tool)}<small>${esc(d.args||'')}</small>`); });
+    on('tool.end', d => log(d.ok?'':'err', `${d.ok?'✓':'✗'} ${esc(d.tool)}`));
+    on('session.start', d => { if (!(d.session||'').startsWith('cron')) log('', `сессия · ${esc(d.platform||'')}`); });
     on('panel.show', showPanel);
-    on('panel.clear', clearAll);
-    on('mode.set', d => { const m=(d.mode||'normal'); $('#mode').textContent = m.toUpperCase(); $('#mode').className = m; document.body.classList.toggle('night', m==='night'); });
-    on('timer.fire', d => { log('tool', `⏰ ${esc(d.label)}`); toast('⏰ ' + d.label, 'ok', 20); });
-    on('plugin.ready', d => log('ok', `plugin · ${esc(d.name)} ready`));
-    on('alert', d => { log('err', `⚠ ${esc(d.kind||'alert')} · ${esc(d.text||'')}`); if (d.kind==='update') $('#updChip').classList.add('show'); toast(d.text||'', d.kind==='update'?'ok':'', 20); if (d.kind==='battery') { const m=/(\d+)%/.exec(d.text||''); if(m){ sys.battery=+m[1]; renderSystem(); } } });
-    on('brain.stats', d => { stats.brain = `${d.notes??'—'} · ${d.entities??'—'}`; if (cards.has('system')) renderSystem(); });
-    on('brain.update', d => { const verb = {created:'+', updated:'~', corrected:'✎', archived:'−'}[d.action] || '·'; log('ok', `brain ${verb} ${esc(d.content||'')}`); });
-    on('brain.review', d => log('tool', `brain · review/${esc(d.stage)} · ${esc(typeof d.report==='string'? d.report : JSON.stringify(d.report||{applied:d.applied,errors:d.errors}))}`));
+    on('panel.clear', () => closeCenter());
+    on('mode.set', d => { dash.mode = d.mode||'normal'; renderSystem(); });
+    on('dashboard.update', d => { Object.assign(dash, d); renderAll(); });
+    on('timer.update', d => { dash.timers = d.timers||[]; renderTimers(); });
+    on('timer.fire', d => { toast(d.label||'Таймер', 'bell', 'cyan', 30); log('ok', `⏰ ${esc(d.label)}`); });
+    on('alert', d => { log('err', `${esc(d.kind||'alert')} · ${esc(d.text||'')}`); if (d.kind==='update') { $('#updChip').classList.add('show'); return; } toast(d.text||'', d.kind==='battery'?'batt':d.kind==='calendar'?'cal':'bell', d.kind==='battery'?'amber':'cyan', 20); });
+    on('brain.update', d => log('', `память · ${esc(d.content||'')}`));
+    on('brain.stats', () => loadDash());
+    on('hud.online', () => {});
   }
+  function setStatus(sse){ const st=$('#status'); const api = !!(dash.hermes_up); st.className = 'status ' + (sse && api ? 'on' : sse ? '' : 'off'); $('#statusTx').textContent = !sse ? 'Нет связи с HUD' : api ? 'Online' : 'Hermes API выключен'; }
+  async function pollStatus(){ try { const j = await (await fetch('/api/status')).json(); dash.hermes_up = !!(j.hermes&&j.hermes.up); setStatus(es && es.readyState===1); } catch { setStatus(false); } }
+  pollStatus(); setInterval(pollStatus, 10000);
   connect();
-  async function status(){
-    try { const r = await fetch('/api/status'); const j = await r.json();
-      $('#dHermes').classList.toggle('on', !!(j.hermes&&j.hermes.up)); stats.clients = j.clients; if (j.model && stats.model==='—') stats.model = j.model; if (cards.has('system')) renderSystem();
-    } catch { $('#dHermes').classList.remove('on'); }
-  }
-  status(); setInterval(status, 8000);
-  $('#updChip').onclick = () => send('Проверь обновления JARVIS и расскажи, что нового');
 
-  // ───────────────────────── chat via Hermes API ─────────────────────────
-  const history = [];
+  // ───────────────────────── чат ─────────────────────────
+  const input = $('#input'), mainBtn = $('#mainBtn');
+  input.addEventListener('input', () => mainBtn.classList.toggle('send', !!input.value.trim()));
   async function send(text){
-    text = (text||'').trim(); if (!text) return;
-    $('#input').value = '';
-    transcript.innerHTML = `<span class="u">ВЫ</span>${esc(text)}`;
-    history.push({role:'user', content:text});
-    setState('thinking','processing'); reply.textContent=''; let acc='';
+    text = (text ?? input.value).trim(); if (!text) return;
+    input.value=''; mainBtn.classList.remove('send'); transcript.textContent = text; reply.textContent=''; reply.classList.remove('err'); streamBuf=''; setState('thinking'); log('', `вы · ${esc(text)}`);
     try {
-      const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history.slice(-20)})});
-      if (!r.ok) { const j = await r.json().catch(()=>({error:r.statusText})); reply.textContent = '⚠ ' + (j.error||'ошибка'); setState('idle'); return; }
-      const rd = r.body.getReader(); const dec = new TextDecoder(); let buf='';
+      const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages:[{role:'user', content:text}]})});
+      if (!r.ok) { const j = await r.json().catch(()=>({error:r.statusText})); reply.textContent = j.error || 'Ошибка'; reply.classList.add('err'); setState('idle'); return; }
+      const rd = r.body.getReader(), dec = new TextDecoder(); let buf='';
       while (true) { const {value, done} = await rd.read(); if (done) break; buf += dec.decode(value, {stream:true});
-        let idx; while ((idx = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+1);
-          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-          try { const j = JSON.parse(line.slice(6)); const d = j.choices?.[0]?.delta?.content; if (d) { acc += d; reply.innerHTML = mdLite(acc); reply.scrollTop = reply.scrollHeight; setState('speaking','responding'); } } catch {}
-        } }
-      history.push({role:'assistant', content:acc}); speak(acc);
-    } catch (e) { reply.textContent = '⚠ ' + e; }
-    setState('idle');
+        let i; while ((i = buf.indexOf('\n\n')) >= 0) { const chunk = buf.slice(0,i); buf = buf.slice(i+2);
+          for (const line of chunk.split('\n')) { if (!line.startsWith('data:')) continue; const data = line.slice(5).trim(); if (data === '[DONE]') continue;
+            try { const j = JSON.parse(data); const d = j.choices?.[0]?.delta?.content || ''; if (d) { if (state!=='speaking') setState('speaking'); streamBuf += d; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; } } catch {} } } }
+      setState('idle'); if (streamBuf) speak(streamBuf);
+    } catch (e) { reply.textContent = 'Нет связи: ' + e; reply.classList.add('err'); setState('idle'); }
   }
-  $('#sendBtn').onclick = () => send($('#input').value);
-  $('#input').addEventListener('keydown', e => { if (e.key === 'Enter') send(e.target.value); });
+  input.addEventListener('keydown', e => { if (e.key==='Enter') { e.preventDefault(); send(); } });
+  mainBtn.onclick = () => { if (input.value.trim()) send(); else toggleListen(); };
 
-  // ───────────────────────── voice ─────────────────────────
-  let ttsOn = localStorage.getItem('jarvis.tts') === '1'; $('#ttsBtn').classList.toggle('active', ttsOn);
-  $('#ttsBtn').onclick = () => { ttsOn = !ttsOn; localStorage.setItem('jarvis.tts', ttsOn?'1':'0'); $('#ttsBtn').classList.toggle('active', ttsOn); };
-  let speakTimer;
-  function speak(text, force){
-    if (!(ttsOn||force) || !('speechSynthesis' in window) || !text) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text.replace(/[*#`_>]/g,'').slice(0,1200));
-    u.lang = /[а-яё]/i.test(text) ? 'ru-RU' : 'en-GB'; u.rate = 1.05;
-    const vs = speechSynthesis.getVoices(); const v = vs.find(v => v.lang.startsWith(u.lang.slice(0,2)) && /Yuri|Milena|Daniel|Google/.test(v.name)) || vs.find(v=>v.lang.startsWith(u.lang.slice(0,2)));
-    if (v) u.voice = v;
-    u.onstart = () => { setState('speaking','speaking'); clearInterval(speakTimer); speakTimer = setInterval(()=>{ voiceAmp = Math.random()*.35+.15; }, 90); };
-    u.onend = u.onerror = () => { clearInterval(speakTimer); voiceAmp = 0; setState('idle'); };
-    speechSynthesis.speak(u);
-  }
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec = null, holding = false;
-  function startRec(){
-    if (!SR) { toast('Web Speech API недоступен — говорите через терминал (Ctrl+B)'); return; }
-    if (rec) return;
+  // ───────────────────────── голос: распознавание и озвучка ─────────────────────────
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec=null, holding=false;
+  async function startListen(){
+    if (state==='listening') return;
+    if (!SR) { toast('Распознавание речи недоступно в этом браузере. Откройте HUD в Safari или Chrome.', 'bell', 'amber'); return; }
+    const okMic = await attachMic();
+    if (!okMic) { toast('Нет доступа к микрофону. Разрешите его для этого сайта в настройках браузера.', 'bell', 'amber'); return; }
     rec = new SR(); rec.lang = 'ru-RU'; rec.interimResults = true; rec.continuous = false;
-    rec.onresult = e => { let t=''; for (const r of e.results) t += r[0].transcript; transcript.innerHTML = `<span class="u">ВЫ</span>${esc(t)}`; if (e.results[e.results.length-1].isFinal) { rec.stop(); send(t); } };
-    rec.onend = () => { rec = null; $('#micBtn').classList.remove('active'); micAmpStop(); if (state==='listening') setState('idle'); };
-    rec.onerror = ev => toast('микрофон: ' + ev.error);
-    rec.start(); $('#micBtn').classList.add('active'); setState('listening','listening'); speechSynthesis.cancel(); micAmpStart();
+    let finalText = '';
+    rec.onresult = e => { let s=''; for (const r of e.results) s += r[0].transcript; transcript.textContent = s; if (e.results[e.results.length-1].isFinal) finalText = s; };
+    rec.onerror = e => { setState('idle'); mainBtn.classList.remove('rec'); if (e.error==='not-allowed') toast('Браузер запретил микрофон для этой страницы.', 'bell', 'amber'); };
+    rec.onend = () => { mainBtn.classList.remove('rec'); if (state==='listening') setState('idle'); const t = finalText || transcript.textContent; if (t && t.trim()) send(t); };
+    try { rec.start(); setState('listening'); mainBtn.classList.add('rec'); } catch {}
   }
-  function stopRec(){ if (rec) rec.stop(); }
-  $('#micBtn').onclick = () => rec ? stopRec() : startRec();
-  core.onclick = () => rec ? stopRec() : startRec();
+  function stopListen(){ if (rec) { try { rec.stop(); } catch {} } }
+  function toggleListen(){ state==='listening' ? stopListen() : startListen(); }
+  orb.onclick = toggleListen;
 
-  // ───────────────────────── hotkeys ─────────────────────────
-  document.addEventListener('keydown', e => {
-    if (e.target === $('#input')) { if (e.key === 'Escape') e.target.blur(); return; }
+  let ttsOn = localStorage.getItem('jarvis.tts')==='1'; $('#ttsBtn').classList.toggle('active', ttsOn);
+  $('#ttsBtn').onclick = () => { ttsOn = !ttsOn; localStorage.setItem('jarvis.tts', ttsOn?'1':'0'); $('#ttsBtn').classList.toggle('active', ttsOn); if (!ttsOn) speechSynthesis.cancel(); };
+  function speak(text){
+    if (!ttsOn || !('speechSynthesis' in window) || !text) return;
+    speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/[*_`#]/g,'').slice(0,1200)); u.lang='ru-RU'; u.rate=1.02;
+    const v = speechSynthesis.getVoices().find(v=>/ru/i.test(v.lang) && /Milena|Yuri|Google/i.test(v.name)) || speechSynthesis.getVoices().find(v=>/ru/i.test(v.lang)); if (v) u.voice=v;
+    u.onstart = () => setState('speaking'); u.onend = () => setState('idle'); speechSynthesis.speak(u);
+  }
+
+  // ───────────────────────── клавиши ─────────────────────────
+  function showHelp(){
+    card('help', {title:'Клавиши', html: `<div class="kv"><span>Пробел (удерживать) / клик по сфере</span><b>говорить</b></div><div class="kv"><span>Enter</span><b>отправить</b></div><div class="kv"><span>K</span><b>база знаний</b></div><div class="kv"><span>A</span><b>лента активности</b></div><div class="kv"><span>T</span><b>озвучивать ответы</b></div><div class="kv"><span>H</span><b>скрыть/показать панели</b></div><div class="kv"><span>Esc</span><b>очистить</b></div><div class="kv"><span>/</span><b>в строку ввода</b></div>`});
+  }
+  $('#helpBtn').onclick = showHelp;
+  addEventListener('keydown', e => {
+    const typing = ['INPUT','TEXTAREA'].includes(document.activeElement.tagName);
+    if (e.code==='Space' && !typing) { e.preventDefault(); if (!holding) { holding=true; startListen(); } return; }
+    if (typing) { if (e.key==='Escape') document.activeElement.blur(); return; }
     const k = e.key.toLowerCase();
-    if (e.code === 'Space' && !holding) { e.preventDefault(); holding = true; startRec(); }
-    else if (k === 'escape') { speechSynthesis.cancel(); clearAll(); setState('idle'); }
-    else if (k === 'k' || k === 'л') toggleCard('brain', ()=>showBrain(''));
-    else if (k === 'a' || k === 'ф') toggleCard('activity', renderActivity);
-    else if (k === 's' || k === 'ы') toggleCard('system', renderSystem);
-    else if (k === 't' || k === 'е') $('#ttsBtn').click();
-    else if (k === 'b' || k === 'и') boot();
-    else if (k === '/' ) { e.preventDefault(); $('#input').focus(); }
+    if (k==='escape') { closeCenter(); transcript.textContent=''; reply.textContent=''; speechSynthesis.cancel(); setState('idle'); }
+    else if (k==='k' || k==='л') cards.has('brain') ? closeCard('brain') : showBrain('');
+    else if (k==='a' || k==='ф') toggleActivity();
+    else if (k==='t' || k==='е') $('#ttsBtn').click();
+    else if (k==='h' || k==='р') document.body.classList.toggle('zen');
+    else if (k==='?' || k===',') cards.has('help') ? closeCard('help') : showHelp();
+    else if (k==='/' || k==='.') { e.preventDefault(); input.focus(); }
   });
-  document.addEventListener('keyup', e => { if (e.code === 'Space' && holding) { holding = false; stopRec(); } });
+  addEventListener('keyup', e => { if (e.code==='Space' && holding) { holding=false; stopListen(); } });
+  const applyHash = () => { const h=(location.hash||'').slice(1); if (h==='brain') showBrain(''); if (h==='activity') renderActivity(); };
+  addEventListener('hashchange', applyHash); setTimeout(applyHash, 800);
+
+  // boot: короткое затемнение, без «терминала»
+  setTimeout(() => $('#boot').classList.add('hide'), 1100);
+  setState('idle');
 })();
 </script>
 </body>

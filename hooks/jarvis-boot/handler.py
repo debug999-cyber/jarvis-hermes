@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import urllib.request
 from pathlib import Path
@@ -34,6 +35,14 @@ def _hud(event: str, data: dict) -> None:
         pass
 
 
+_ERROR_RE = re.compile(r"^\s*(HTTP\s*\d{3}|Error code|error:|\[?ERROR\]?|Traceback|APIError|RateLimit)", re.I)
+
+
+def _looks_like_error(text: str) -> bool:
+    """Ответ агента — это текст ошибки, а не сообщение пользователю."""
+    return not text or bool(_ERROR_RE.match(text)) or (len(text) < 80 and "error" in text.lower())
+
+
 def _run_boot(content: str) -> None:
     try:
         from gateway.run import _resolve_gateway_model, _resolve_runtime_agent_kwargs  # type: ignore
@@ -54,9 +63,13 @@ def _run_boot(content: str) -> None:
         )
         result = agent.run_conversation(prompt)
         text = (result.get("final_response") or "").strip()
-        if text and text.upper() not in {"[SILENT]", "SILENT"}:
+        if _looks_like_error(text):
+            # ошибка модели/сети — в лог, а не на экран (раньше HUD показывал «HTTP 405: Error code: 405»)
+            logger.error("BOOT.md: агент вернул ошибку вместо ответа: %s", text[:300])
+        elif text and text.upper().strip("[] ") not in {"SILENT", "NO_REPLY"}:
             logger.info("BOOT.md: %s", text[:300])
-            _hud("panel.show", {"kind": "markdown", "title": "BOOT", "content": text, "position": "right", "ttl": 60})
+            # id «boot» → при перезапуске gateway панель заменяется, а не добавляется ещё одна
+            _hud("panel.show", {"id": "boot", "kind": "markdown", "title": "При старте", "content": text, "position": "right", "ttl": 120})
         else:
             logger.info("BOOT.md: нечего сообщать")
     except Exception as e:  # noqa: BLE001
