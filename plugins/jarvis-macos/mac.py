@@ -59,13 +59,14 @@ def osascript(script: str, language: str = "applescript", timeout: int = 30) -> 
         return run(cmd, timeout=timeout)
     except MacError as e:
         msg = str(e)
-        # Наиболее частые проблемы — переводим на понятный язык
-        if "not allowed assistive access" in msg or "1002" in msg:
+        low = msg.lower()
+        # Наиболее частые проблемы — переводим на понятный язык (macOS локализует текст ошибок: en/ru)
+        if "assistive access" in low or "упрощенного доступа" in low or "упрощённого доступа" in low or "-1719" in msg or "1002" in msg:
             raise MacError(
                 "Нет прав Accessibility. Откройте Системные настройки → Конфиденциальность и безопасность → "
                 "Универсальный доступ и разрешите Terminal / iTerm / Hermes."
             )
-        if "Not authorized to send Apple events" in msg or "-1743" in msg:
+        if "not authorized to send apple events" in low or "не разрешено отправлять" in low or "-1743" in msg:
             raise MacError(
                 "macOS запросила разрешение на Автоматизацию. Нажмите «Разрешить» в диалоге или включите доступ в "
                 "Системные настройки → Конфиденциальность → Автоматизация."

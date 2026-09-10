@@ -96,7 +96,7 @@ jarvis-hermes/
 ├── hooks/jarvis-boot/         ← gateway-хук: BOOT.md + зеркалирование активности на HUD
 ├── scripts/                   ← merge_config.py, setup_cron.sh, selftest.py
 ├── skill-bundles/jarvis.yaml  ← /jarvis — включить все навыки разом
-├── tests/                     ← pytest (57 тестов, работают и на Linux)
+├── tests/                     ← pytest (58 тестов, работают и на Linux)
 └── docs/                      ← INSTALL, USAGE, ARCHITECTURE, DEVELOPMENT, TROUBLESHOOTING, RESEARCH
 ```
 
@@ -140,7 +140,7 @@ jarvis-hermes/
 
 ## Статус
 
-Проект написан и проверен в Linux-песочнице (57 тестов, macOS-специфичные вызовы замоканы). На реальном Mac ещё не запускался —
+Проект написан и проверен в Linux-песочнице (58 тестов, macOS-специфичные вызовы замоканы). На реальном Mac ещё не запускался —
 поэтому первым шагом после установки идёт `jarvis selftest`. Issue и PR приветствуются.
 
 ## Лицензия

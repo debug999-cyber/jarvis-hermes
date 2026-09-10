@@ -282,5 +282,24 @@ def test_selftest_classifier():
     s, note, url = st.classify({"success": False, "error": "osascript is not allowed assistive access", "hint": "Включите Accessibility"})
     assert s == "perm" and "Универсальный доступ" in note and url.endswith("Privacy_Accessibility")
     assert st.classify({"success": False, "error": "Не удалось прочитать Focus", "hint": "нужен Full Disk Access"})[0] == "perm"
+    # macOS 26 отдаёт ошибки по-русски (реальный вывод с Mac пользователя)
+    s, note, _ = st.classify({"success": False, "error": "40:44: execution error: Получена ошибка от «System Events»: "
+                                                       "Функции Упрощенного доступа для «osascript» не разрешены. (-1719)"})
+    assert s == "perm" and "Универсальный доступ" in note
+    assert st.CANDIDATES[0].name == "jarvis-macos" and "plugins" in str(st.CANDIDATES[0])
     assert st.classify({"success": False, "error": "что-то странное"})[0] == "fail"
     assert all(h in load_plugin("jarvis-macos").tools.HANDLERS for h, _, _ in st.CHECKS)
+
+
+def test_osascript_errors_localized(monkeypatch):
+    macos = load_plugin("jarvis-macos")
+    mac = macos.tools.mac
+    monkeypatch.setattr(mac, "IS_MAC", True)
+    for raw in ("execution error: System Events got an error: osascript is not allowed assistive access. (-1719)",
+                "40:44: execution error: Получена ошибка от «System Events»: Функции Упрощенного доступа для «osascript» не разрешены. (-1719)"):
+        def boom(cmd, timeout=10, _raw=raw):
+            raise mac.MacError(_raw)
+        monkeypatch.setattr(mac, "run", boom)
+        with pytest.raises(mac.MacError) as ei:
+            mac.osascript("tell application \"System Events\" to get name of every window")
+        assert "Accessibility" in str(ei.value)
