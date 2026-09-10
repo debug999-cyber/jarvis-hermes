@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import urllib.request
@@ -40,7 +41,7 @@ _cfg = {
     "log_turns": True,
     "auto_capture": True,
     "hud_url": "http://127.0.0.1:8765",
-    "export_path": "~/.hermes/jarvis/BRAIN.md",
+    "export_path": "",              # пусто → $HERMES_HOME/jarvis/BRAIN.md
     "backup_mirror": "",            # напр. "~/Library/Mobile Documents/com~apple~CloudDocs/JARVIS" → iCloud
     "log_failures": True,           # журнал сбоев инструментов → ночная самодиагностика
     "stt_vocabulary": True,         # имена из базы → подсказка распознаванию речи
@@ -97,7 +98,7 @@ def _hud(event: str, data: dict) -> None:
             req = urllib.request.Request(_cfg["hud_url"].rstrip("/") + "/api/event", data=body,
                                          headers={"Content-Type": "application/json"}, method="POST")
             urllib.request.urlopen(req, timeout=1).close()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     threading.Thread(target=_send, daemon=True).start()
@@ -107,9 +108,9 @@ def _hud(event: str, data: dict) -> None:
 
 def build_memory_context(user_message: str, is_first_turn: bool = False) -> str:
     """Короткий блок релевантных знаний для модели. Пусто — если нечего сказать."""
-    b = brain()
     parts: list[str] = []
     try:
+        b = brain()  # открытие базы может упасть (нет прав на каталог, диск полон) — ход агента от этого страдать не должен
         if is_first_turn:
             eps = b.episodes(1)
             if eps:
@@ -119,7 +120,7 @@ def build_memory_context(user_message: str, is_first_turn: bool = False) -> str:
         for h in hits:
             ent = f" ({h['entity']})" if h.get("entity") else ""
             parts.append(f"- #{h['id']} [{h['kind']}]{ent} {h['content']}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("brain context failed: %s", e)
     if not parts:
         return ""
@@ -127,6 +128,9 @@ def build_memory_context(user_message: str, is_first_turn: bool = False) -> str:
 
 
 def hook_pre_llm_call(session_id: str = "", user_message: str = "", is_first_turn: bool = False, **kwargs):
+    if len(_turn_tools) > 200:  # сессии, для которых post_llm_call не пришёл (ошибка модели) — не копим бесконечно
+        for old in list(_turn_tools)[:100]:
+            _turn_tools.pop(old, None)
     _turn_tools[session_id] = set()
     if not _cfg.get("inject_context", True):
         return None
@@ -157,7 +161,7 @@ def hook_post_tool_call(tool_name: str = "", args=None, result=None, status: str
                 failed, msg = True, str(data.get("error") or "")
         if failed and msg and "требует явного подтверждения" not in msg:
             brain().log_failure(tool_name, error_type or "tool_error", msg, json.dumps(args or {}, ensure_ascii=False)[:300])
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("brain failure log: %s", e)
 
 
@@ -171,7 +175,7 @@ def hook_pre_transcription(provider: str = "", prompt=None, source=None, **kwarg
             return None
         hint = ", ".join(vocab)
         return {"prompt": f"{prompt}. {hint}" if prompt else f"JARVIS. {hint}"}
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -212,8 +216,8 @@ def hook_transform_llm_output(response_text: str = "", session_id: str = "", mod
 
 def hook_post_llm_call(session_id: str = "", user_message: str = "", assistant_response: str = "",
                        platform: str = "", **kwargs):
-    b = brain()
     try:
+        b = brain()
         if _cfg.get("log_turns", True) and (user_message or assistant_response):
             b.log_turn(session_id, platform, user_message, assistant_response)
         # страховка: пользователь сказал «запомни …», а модель не вызвала brain_remember
@@ -224,7 +228,7 @@ def hook_post_llm_call(session_id: str = "", user_message: str = "", assistant_r
                 if 3 <= len(text) <= 500:
                     res = b.remember(text, kind="fact", source="auto-capture", confidence=0.7, importance=3, tags="auto")
                     _hud("brain.update", {"action": res["action"], "id": res["id"], "content": text[:120]})
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("brain post_llm failed: %s", e)
     finally:
         _turn_tools.pop(session_id, None)
@@ -341,7 +345,8 @@ def tool_brain_review(args: dict, **kwargs) -> str:
             _hud("brain.review", {"stage": "finish", "report": (args.get("report") or "")[:300]})
             return _ok(**res)
         if a == "export":
-            path = Path(args.get("path") or _cfg["export_path"]).expanduser()
+            default_export = Path(os.environ.get("HERMES_HOME") or "~/.hermes").expanduser() / "jarvis" / "BRAIN.md"
+            path = Path(args.get("path") or _cfg["export_path"] or default_export).expanduser()
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(b.export_markdown(), encoding="utf-8")
             profile = path.with_name("PROFILE.md")
@@ -411,7 +416,7 @@ def register(ctx) -> None:
     for key in list(_cfg):
         try:
             val = ctx.get_config(key, default=None)
-        except Exception:  # noqa: BLE001
+        except Exception:
             val = None
         if val is not None:
             _cfg[key] = val
@@ -423,7 +428,7 @@ def register(ctx) -> None:
     for name, fn in (("pre_transcription", hook_pre_transcription), ("transform_llm_output", hook_transform_llm_output)):
         try:
             ctx.register_hook(name, fn)
-        except Exception as e:  # noqa: BLE001 — старые версии Hermes
+        except Exception as e:  # старые версии Hermes
             logger.debug("hook %s недоступен: %s", name, e)
 
     for schema, handler in (
@@ -443,7 +448,7 @@ def register(ctx) -> None:
             if child.is_dir() and md.exists():
                 try:
                     ctx.register_skill(child.name, md)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.debug("register_skill(%s): %s", child.name, e)
 
     # slash-команды
@@ -481,7 +486,7 @@ def register(ctx) -> None:
             try:
                 ctx.inject_message(NIGHTLY_PROMPT, role="user")
                 return ""
-            except Exception:  # noqa: BLE001
+            except Exception:
                 return NIGHTLY_PROMPT
         if sub in ("diary", "дневник"):
             eps = brain().episodes(7)
@@ -513,12 +518,12 @@ def register(ctx) -> None:
     ):
         try:
             ctx.register_command(name, fn, description=desc)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("register_command(%s): %s", name, e)
 
     try:
         st = brain().stats()
         _hud("brain.stats", {"notes": st["notes_active"], "entities": st["entities"]})
         logger.info("jarvis-brain загружен: %s заметок, %s карточек (%s)", st["notes_active"], st["entities"], st["db_path"])
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("jarvis-brain: не удалось открыть базу: %s", e)

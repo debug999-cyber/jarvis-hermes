@@ -1,7 +1,7 @@
 """
 Gateway-хук JARVIS.
 
-* gateway:startup → запускает одноразового агента с инструкциями из ~/.hermes/BOOT.md
+* gateway:startup → запускает одноразового агента с инструкциями из $HERMES_HOME/BOOT.md
                     (проверка cron, состояния системы, приветствие) — в фоне, не блокируя gateway.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _hud(event: str, data: dict) -> None:
             method="POST",
         )
         urllib.request.urlopen(req, timeout=1).close()
-    except Exception:  # noqa: BLE001 — HUD может быть выключен
+    except Exception:  # HUD может быть выключен
         pass
 
 
@@ -70,7 +70,7 @@ def _run_boot(content: str) -> None:
             _hud("panel.show", {"id": "boot", "kind": "markdown", "title": "При старте", "content": text, "position": "right", "ttl": 120})
         else:
             logger.info("BOOT.md: нечего сообщать")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error("BOOT.md agent failed: %s", e)
 
 

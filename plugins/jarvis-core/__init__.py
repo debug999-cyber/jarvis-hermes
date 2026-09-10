@@ -48,7 +48,7 @@ def _battery_brief() -> str:
         for tok in out.replace(";", " ").split():
             if tok.endswith("%"):
                 return tok + (" ⚡" if "charging" in out and "discharging" not in out else "")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return ""
 
@@ -59,7 +59,7 @@ def _frontmost() -> str:
             ["osascript", "-e", 'tell application "System Events" to get name of first application process whose frontmost is true'],
             capture_output=True, text=True, timeout=3,
         ).stdout.strip()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ""
 
 
@@ -136,7 +136,7 @@ def hook_post_tool_call(tool_name: str = "", args: dict | None = None, result=No
     try:
         if isinstance(result, str) and result.lstrip().startswith("{"):
             ok = json.loads(result).get("success", True) is not False
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     _hud.emit("tool.end", {"tool": tool_name, "ok": ok, "task": task_id})
 
@@ -213,7 +213,7 @@ def _schedule_fire(label: str, target: dt.datetime) -> None:
         try:
             subprocess.run(["osascript", "-e", f'display notification "{label}" with title "JARVIS ⏰" sound name "Glass"'], timeout=5)
             subprocess.Popen(["afplay", "/System/Library/Sounds/Glass.aiff"])
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     threading.Thread(target=_wait, name=f"jarvis-timer-{label}", daemon=True).start()
@@ -238,7 +238,7 @@ def _run_shortcut(name: str) -> bool:
     try:
         proc = subprocess.run(["shortcuts", "run", name], capture_output=True, timeout=15)
         return proc.returncode == 0
-    except Exception:  # noqa: BLE001 — нет shortcuts (Linux) или таймаут
+    except Exception:  # нет shortcuts (Linux) или таймаут
         return False
 
 
@@ -269,7 +269,7 @@ def tool_jarvis_update(args: dict, **kwargs) -> str:
     if action == "status":
         return json.dumps({"success": True, **update_status()}, ensure_ascii=False)
     if not script.exists():
-        return json.dumps({"success": False, "error": "updater не установлен (нет ~/.hermes/jarvis/update.py) — переустановите через install.sh"}, ensure_ascii=False)
+        return json.dumps({"success": False, "error": f"updater не установлен (нет {script}) — переустановите через install.sh"}, ensure_ascii=False)
     if action in ("apply", "rollback") and not args.get("confirmed"):
         return json.dumps({"success": False, "needs_confirmation": True,
                            "error": f"{action} требует явного подтверждения пользователя (confirmed=true)"}, ensure_ascii=False)
@@ -309,7 +309,7 @@ def tool_jarvis_weather(args: dict, **kwargs) -> str:
             "humidity": cur["humidity"], "wind_kmph": cur["windspeedKmph"],
             "today_min_c": today["mintempC"], "today_max_c": today["maxtempC"],
         }, ensure_ascii=False)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return json.dumps({"success": False, "error": f"Не удалось получить погоду: {e}"}, ensure_ascii=False)
 
 
@@ -348,7 +348,7 @@ class Watchdog:
         while not self._stop.wait(self.interval):
             try:
                 self.tick()
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.debug("watchdog: %s", e)
 
     def tick(self, now: float | None = None) -> list[str]:
@@ -372,7 +372,7 @@ class Watchdog:
                     if self.meeting_prep:
                         try:
                             prep = self.meeting_prep(ev)
-                        except Exception as e:  # noqa: BLE001
+                        except Exception as e:
                             logger.debug("meeting_prep: %s", e)
                     self.notify("JARVIS 📅", msg + (f" — {prep[:120]}" if prep else ""))
                     _hud.emit("alert", {"kind": "calendar", "text": msg})
@@ -422,7 +422,7 @@ class Watchdog:
     def battery_state() -> tuple[int | None, bool]:
         try:
             out = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=3).stdout
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None, False
         pct = None
         for tok in out.replace(";", " ").split():
@@ -447,7 +447,7 @@ class Watchdog:
         return output'''
         try:
             out = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=30).stdout
-        except Exception:  # noqa: BLE001
+        except Exception:
             return []
         evs = []
         for line in out.splitlines():
@@ -460,7 +460,7 @@ class Watchdog:
     def notify(title: str, text: str) -> None:
         try:
             subprocess.run(["osascript", "-e", f'display notification "{text}" with title "{title}" sound name "Glass"'], timeout=5)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -475,7 +475,7 @@ def meeting_prep_from_brain(event: dict) -> str | None:
         if mod is None:
             return None
         b = mod.brain()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     title = event.get("title", "")
     mat = b.reflect_material(title, limit=6)
@@ -507,7 +507,7 @@ def register(ctx) -> None:
     for key in ("hud_url", "user_name", "city", "inject_context", "watchdog", "battery_threshold", "watch_calendar", "follow_focus"):
         try:
             val = ctx.get_config(key, default=None)
-        except Exception:  # noqa: BLE001
+        except Exception:
             val = None
         if val is not None:
             if key == "hud_url":
@@ -524,7 +524,7 @@ def register(ctx) -> None:
     for name, fn in (("on_stream_delta", hook_stream_delta), ("on_stream_end", hook_stream_end)):
         try:
             ctx.register_hook(name, fn)
-        except Exception as e:  # noqa: BLE001 — стриминговые хуки есть не во всех версиях
+        except Exception as e:  # стриминговые хуки есть не во всех версиях
             logger.debug("hook %s недоступен: %s", name, e)
 
     # инструменты
@@ -541,7 +541,7 @@ def register(ctx) -> None:
             if child.is_dir() and md.exists():
                 try:
                     ctx.register_skill(child.name, md)
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.debug("register_skill(%s): %s", child.name, e)
 
     # slash-команды
@@ -549,7 +549,7 @@ def register(ctx) -> None:
         try:
             ctx.inject_message(BRIEF_PROMPT, role="user")
             return ""  # ответ придёт как обычный ход агента
-        except Exception:  # noqa: BLE001
+        except Exception:
             return BRIEF_PROMPT  # старые версии: просто вернуть текст подсказки
 
     def cmd_focus(raw: str) -> str:
@@ -576,7 +576,7 @@ def register(ctx) -> None:
     ):
         try:
             ctx.register_command(name, fn, description=desc)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("register_command(%s): %s", name, e)
 
     # восстановить таймеры после рестарта

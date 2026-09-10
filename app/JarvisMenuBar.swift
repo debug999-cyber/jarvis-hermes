@@ -18,7 +18,8 @@ let hermesHome: String = {
 }()
 let jarvisHome = hermesHome + "/jarvis"
 let jarvisBin = NSHomeDirectory() + "/.local/bin/jarvis"
-let hudURL = "http://127.0.0.1:8765"
+let hudURL = "http://127.0.0.1:" + (ProcessInfo.processInfo.environment["JARVIS_HUD_PORT"] ?? "8765")
+let hermesAPI = "http://127.0.0.1:8642"
 
 func readJSON(_ path: String) -> [String: Any] {
     guard let d = FileManager.default.contents(atPath: path),
@@ -117,8 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         latest = upd["latest"] as? String ?? ""
         http(hudURL + "/api/status") { ok, j in
             self.hudUp = ok
-            self.apiUp = ((j["hermes"] as? [String: Any])?["up"] as? Bool) ?? false
-            self.paint(); self.rebuildMenu()
+            if ok {
+                self.apiUp = ((j["hermes"] as? [String: Any])?["up"] as? Bool) ?? false
+                self.paint(); self.rebuildMenu()
+            } else {
+                // HUD лежит — состояние gateway проверяем напрямую, иначе «API ○» вводило бы в заблуждение
+                http(hermesAPI + "/health") { apiOk, _ in self.apiUp = apiOk; self.paint(); self.rebuildMenu() }
+            }
         }
     }
 

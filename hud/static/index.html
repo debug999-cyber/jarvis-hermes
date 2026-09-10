@@ -538,7 +538,7 @@
     text = (text ?? input.value).trim(); if (!text) return;
     stopAll();
     input.value=''; mainBtn.classList.remove('send'); transcript.textContent = text; reply.textContent=''; reply.classList.remove('err'); streamBuf=''; setState('thinking'); log('', `вы · ${esc(text)}`);
-    chatting = true; chatAbort = new AbortController();
+    chatting = true; chatAbort = new AbortController(); let streamErr = '';
     try {
       const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages:[{role:'user', content:text}]}), signal: chatAbort.signal});
       if (!r.ok) { const j = await r.json().catch(()=>({error:r.statusText})); reply.textContent = j.error || 'Ошибка'; reply.classList.add('err'); setState('idle'); return; }
@@ -546,8 +546,13 @@
       while (true) { const {value, done} = await rd.read(); if (done) break; buf += dec.decode(value, {stream:true});
         let i; while ((i = buf.indexOf('\n\n')) >= 0) { const chunk = buf.slice(0,i); buf = buf.slice(i+2);
           for (const line of chunk.split('\n')) { if (!line.startsWith('data:')) continue; const data = line.slice(5).trim(); if (data === '[DONE]') continue;
-            try { const j = JSON.parse(data); const d = j.choices?.[0]?.delta?.content || ''; if (d) { if (state!=='speaking') setState('speaking'); streamBuf += d; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; } } catch {} } } }
-      setState('idle'); lastReply = streamBuf; if (streamBuf) speak(streamBuf);
+            try { const j = JSON.parse(data);
+              if (j.error) { streamErr = typeof j.error === 'string' ? j.error : (j.error.message || JSON.stringify(j.error)); continue; }
+              const d = j.choices?.[0]?.delta?.content || ''; if (d) { if (state!=='speaking') setState('speaking'); streamBuf += d; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; } } catch {} } } }
+      setState('idle'); lastReply = streamBuf;
+      if (streamBuf) speak(streamBuf);
+      else if (streamErr) { reply.textContent = streamErr; reply.classList.add('err'); }
+      else { reply.textContent = 'Модель вернула пустой ответ. Попробуйте переформулировать или проверьте `hermes model`.'; reply.classList.add('err'); }
     } catch (e) { if (e.name !== 'AbortError') { reply.textContent = 'Нет связи: ' + e; reply.classList.add('err'); } setState('idle'); }
     finally { chatting = false; chatAbort = null; }
   }

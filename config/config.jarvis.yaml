@@ -30,7 +30,7 @@ plugins:
         min_score: 1.2
         log_turns: true                  # журнал ходов для ночного дневника
         auto_capture: true               # «запомни …» сохраняется даже без вызова инструмента
-        export_path: "~/.hermes/jarvis/BRAIN.md"
+        export_path: ""                  # пусто → $HERMES_HOME/jarvis/BRAIN.md
         backup_mirror: ""                # напр. "~/Library/Mobile Documents/com~apple~CloudDocs/JARVIS" — зеркало бэкапа в iCloud
         log_failures: true               # журнал сбоев инструментов → ночная самодиагностика
         stt_vocabulary: true             # имена из базы → подсказка Whisper
@@ -38,7 +38,7 @@ plugins:
     jarvis-macos:
       settings:
         allow_raw_applescript: false     # включите, если доверяете модели произвольные скрипты
-        screenshot_dir: "~/.hermes/cache/jarvis/screenshots"
+        screenshot_dir: ""               # пусто → $HERMES_HOME/cache/jarvis/screenshots
         default_player: "auto"           # auto | music | spotify
 
 # ── Голос: запись с микрофона в CLI/TUI ────────────────────────────────────

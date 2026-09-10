@@ -39,10 +39,10 @@ def run(cmd: list[str] | str, timeout: int = 30, check: bool = True) -> str:
         cmd = shlex.split(cmd)
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except FileNotFoundError:
-        raise MacError(f"Команда не найдена: {cmd[0]}")
-    except subprocess.TimeoutExpired:
-        raise MacError(f"Команда превысила лимит {timeout}с: {' '.join(cmd)}")
+    except FileNotFoundError as e:
+        raise MacError(f"Команда не найдена: {cmd[0]}") from e
+    except subprocess.TimeoutExpired as e:
+        raise MacError(f"Команда превысила лимит {timeout}с: {' '.join(cmd)}") from e
     if check and proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
         raise MacError(err or f"Код возврата {proc.returncode}")
@@ -65,12 +65,12 @@ def osascript(script: str, language: str = "applescript", timeout: int = 30) -> 
             raise MacError(
                 "Нет прав Accessibility. Откройте Системные настройки → Конфиденциальность и безопасность → "
                 "Универсальный доступ и разрешите Terminal / iTerm / Hermes."
-            )
+            ) from e
         if "not authorized to send apple events" in low or "не разрешено отправлять" in low or "-1743" in msg:
             raise MacError(
                 "macOS запросила разрешение на Автоматизацию. Нажмите «Разрешить» в диалоге или включите доступ в "
                 "Системные настройки → Конфиденциальность → Автоматизация."
-            )
+            ) from e
         raise
 
 
@@ -88,8 +88,13 @@ def as_str(value) -> str:
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def hermes_home() -> Path:
+    """$HERMES_HOME или ~/.hermes."""
+    return Path(os.environ.get("HERMES_HOME") or "~/.hermes").expanduser()
+
+
 def cache_dir(sub: str = "") -> Path:
-    base = Path(os.environ.get("JARVIS_CACHE_DIR", "~/.hermes/cache/jarvis")).expanduser()
+    base = Path(os.environ["JARVIS_CACHE_DIR"]).expanduser() if os.environ.get("JARVIS_CACHE_DIR") else hermes_home() / "cache" / "jarvis"
     if sub:
         base = base / sub
     base.mkdir(parents=True, exist_ok=True)

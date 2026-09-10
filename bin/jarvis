@@ -12,20 +12,46 @@ HUD_PID="$HERMES_HOME/jarvis/hud.pid"
 HUD_LOG="$HERMES_HOME/logs/jarvis-hud.log"
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-CB='\033[1;36m'; CG='\033[1;32m'; CR='\033[1;31m'; CY='\033[1;33m'; C0='\033[0m'
+CB='\033[1;36m'; CR='\033[1;31m'; C0='\033[0m'
 say(){ printf "${CB}◆${C0} %s\n" "$*"; }
+fail(){ printf "${CR}✖ %s${C0}\n" "$*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null 2>&1 || fail "нужна команда $1 — ${2:-установите её}"; }
 
-hud_running(){ [[ -f "$HUD_PID" ]] && kill -0 "$(cat "$HUD_PID")" 2>/dev/null; }
+# HUD считается запущенным, если жив pid из pid-файла ИЛИ порт отвечает (например, HUD поднят launchd'ом)
+hud_pid_alive(){ [[ -f "$HUD_PID" ]] && kill -0 "$(cat "$HUD_PID" 2>/dev/null)" 2>/dev/null; }
+hud_port_alive(){ curl -s -m 1 -o /dev/null "http://127.0.0.1:$HUD_PORT/api/status" 2>/dev/null; }
+hud_running(){ hud_pid_alive || hud_port_alive; }
+hud_launchd(){ launchctl print "gui/$(id -u)/ai.jarvis.hud" >/dev/null 2>&1; }   # HUD под управлением launchd?
 hud_start(){
-  if hud_running; then say "HUD уже запущен (pid $(cat "$HUD_PID"))"; return; fi
+  if hud_pid_alive; then say "HUD уже запущен (pid $(cat "$HUD_PID"))"; return; fi
+  if hud_port_alive; then say "HUD уже отвечает на :$HUD_PORT (запущен через launchd)"; return; fi
+  [[ -f "$JARVIS_HOME/hud/server.py" ]] || fail "HUD не установлен: $JARVIS_HOME/hud/server.py (переустановите: bash install.sh)"
   mkdir -p "$(dirname "$HUD_LOG")"
   nohup "$PY" "$JARVIS_HOME/hud/server.py" --port "$HUD_PORT" >>"$HUD_LOG" 2>&1 &
   echo $! > "$HUD_PID"; sleep 0.7
   hud_running && say "HUD → http://127.0.0.1:$HUD_PORT" || { printf "${CR}HUD не стартовал, см. %s${C0}\n" "$HUD_LOG"; exit 1; }
 }
-hud_stop(){ hud_running && { kill "$(cat "$HUD_PID")"; rm -f "$HUD_PID"; say "HUD остановлен"; } || say "HUD не запущен"; }
+hud_stop(){
+  if hud_pid_alive; then kill "$(cat "$HUD_PID")" 2>/dev/null || true; rm -f "$HUD_PID"; say "HUD остановлен"
+  elif hud_launchd; then
+    # запущен launchd'ом — снимаем агент до следующего входа в систему, иначе KeepAlive поднимет его снова
+    launchctl bootout "gui/$(id -u)/ai.jarvis.hud" >/dev/null 2>&1 || true; say "HUD остановлен (launchd-агент выгружен до следующего входа)"
+  elif hud_port_alive; then
+    pkill -f "jarvis/hud/server.py" 2>/dev/null || true; say "HUD остановлен"
+  else rm -f "$HUD_PID"; say "HUD не запущен"; fi
+}
 
 gateway_running(){ hermes gateway status 2>/dev/null | grep -qi -E "running|запущен|active"; }
+gateway_launchd(){ launchctl print "gui/$(id -u)/ai.jarvis.gateway" >/dev/null 2>&1; }
+gateway_start(){
+  if gateway_launchd; then launchctl kickstart "gui/$(id -u)/ai.jarvis.gateway" 2>/dev/null || true
+  else hermes gateway start "$@" >/dev/null 2>&1 || hermes gateway "$@"; fi
+}
+gateway_stop(){
+  # под launchd (KeepAlive) обычный stop бесполезен — агент тут же поднимется снова; выгружаем до следующего входа
+  if gateway_launchd; then launchctl bootout "gui/$(id -u)/ai.jarvis.gateway" >/dev/null 2>&1 || true; say "gateway остановлен (launchd-агент выгружен до следующего входа)"
+  else hermes gateway stop; fi
+}
 
 usage(){ cat <<EOF
 J.A.R.V.I.S. on Hermes Agent
@@ -34,7 +60,7 @@ J.A.R.V.I.S. on Hermes Agent
   jarvis chat [args]     классический CLI Hermes с профилем JARVIS
   jarvis ask "вопрос"    один вопрос — один ответ (без интерактива)
   jarvis hud             запустить HUD и открыть в браузере
-  jarvis hud stop|log    остановить HUD / показать лог
+  jarvis hud stop|log|status   остановить HUD / показать лог / проверить
   jarvis hush            немедленно заглушить речь (say/afplay/озвучка HUD)
   jarvis gateway         запустить gateway (Telegram/Discord/API) в фоне
   jarvis gateway stop    остановить gateway
@@ -51,12 +77,13 @@ J.A.R.V.I.S. on Hermes Agent
   jarvis app [build|quit|status|debug]  приложение строки меню JARVIS.app
   jarvis version         версии JARVIS и Hermes
   jarvis perms           открыть нужные панели разрешений macOS
-  jarvis config          открыть ~/.hermes/config.yaml в редакторе
+  jarvis config          открыть config.yaml Hermes в редакторе
   jarvis logs            хвост логов агента и HUD
 EOF
 }
 
 cmd="${1:-}"; [[ $# -gt 0 ]] && shift || true
+case "$cmd" in -h|--help|help|version|--version|-v) ;; *) [[ -d "$HERMES_HOME" ]] || fail "каталог HERMES_HOME не найден: $HERMES_HOME (переустановите: bash install.sh)" ;; esac
 case "$cmd" in
   ""|voice|tui)
     say "JARVIS online. Скажите «Hey Jarvis» или нажмите Ctrl+B. /voice, /wake, /brief, /focus, /timer, /screen"
@@ -66,23 +93,25 @@ case "$cmd" in
     pkill -x say 2>/dev/null; pkill -x afplay 2>/dev/null
     curl -s -X POST -H 'Content-Type: application/json' -d '{}' "http://127.0.0.1:$HUD_PORT/api/hush" >/dev/null 2>&1 || true
     say "тихо" ;;
-  ask)       exec hermes chat -q "$*" ;;
+  ask)       [[ $# -gt 0 ]] || fail 'использование: jarvis ask "вопрос"'; exec hermes chat -q "$*" ;;
   hud)
     case "${1:-start}" in
-      start) hud_start; open "http://127.0.0.1:$HUD_PORT" 2>/dev/null || true ;;
+      start|open) hud_start; open "http://127.0.0.1:$HUD_PORT" 2>/dev/null || true ;;
+      status) hud_running && say "HUD работает → http://127.0.0.1:$HUD_PORT" || { say "HUD не запущен"; exit 1; } ;;
       stop)  hud_stop ;;
       log|logs) tail -n 60 -f "$HUD_LOG" ;;
-      restart) hud_stop; hud_start ;;
+      restart) if hud_launchd; then launchctl kickstart -k "gui/$(id -u)/ai.jarvis.hud" && say "HUD перезапущен (launchd)"; else hud_stop; hud_start; fi ;;
       *) usage ;;
     esac ;;
   gateway)
     case "${1:-start}" in
-      start) hermes gateway start "$@" 2>/dev/null || hermes gateway ;;
-      stop)  hermes gateway stop ;;
+      start) shift || true; gateway_start "$@"; say "gateway запущен (API :8642)" ;;
+      stop)  gateway_stop ;;
+      restart) gateway_stop; gateway_start; say "gateway перезапущен" ;;
       *)     hermes gateway "$@" ;;
     esac ;;
   up)
-    hermes gateway start >/dev/null 2>&1 || true; say "gateway запущен (API :8642)"
+    gateway_start; say "gateway запущен (API :8642)"
     hud_start; open "http://127.0.0.1:$HUD_PORT" 2>/dev/null || true
     exec hermes --tui ;;
   status)
@@ -104,18 +133,22 @@ case "$cmd" in
     # jarvis brain [stats|export|review|log|backup|path]
     sub="${1:-stats}"; shift || true
     BRAIN_DB="$HERMES_HOME/plugin-data/jarvis-brain/brain.db"
+    case "$sub" in sql|log|diary|stats|"") need sqlite3 "brew install sqlite" ;; esac
     case "$sub" in
       review) exec hermes chat -s brain-nightly-review -q "Проведи ревизию базы знаний по навыку brain-nightly-review прямо сейчас и дай отчёт." ;;
       export) exec hermes chat -q "Вызови brain_review export и ответь только путём к файлу." ;;
       path)   echo "$BRAIN_DB" ;;
-      backup) cp "$BRAIN_DB" "$BRAIN_DB.manual-$(date +%Y%m%d-%H%M%S)" && echo "ok: $BRAIN_DB.manual-*" ;;
-      sql)    exec sqlite3 "$BRAIN_DB" "$@" ;;
-      log)    sqlite3 -header -column "$BRAIN_DB" "SELECT ts, actor, op, table_name, row_id FROM changelog ORDER BY id DESC LIMIT ${1:-20}" ;;
-      diary)  sqlite3 -column "$BRAIN_DB" "SELECT day, summary FROM episodes ORDER BY day DESC LIMIT ${1:-7}" ;;
+      backup) [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"
+              dst="$BRAIN_DB.manual-$(date +%Y%m%d-%H%M%S)"; cp "$BRAIN_DB" "$dst" && echo "ok: $dst" ;;
+      sql)    [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"; exec sqlite3 "$BRAIN_DB" "$@" ;;
+      log)    [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"; sqlite3 -header -column "$BRAIN_DB" "SELECT ts, actor, op, table_name, row_id FROM changelog ORDER BY id DESC LIMIT ${1:-20}" ;;
+      diary)  [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"; sqlite3 -column "$BRAIN_DB" "SELECT day, summary FROM episodes ORDER BY day DESC LIMIT ${1:-7}" ;;
       profile) [[ -f "$HERMES_HOME/jarvis/PROFILE.md" ]] && cat "$HERMES_HOME/jarvis/PROFILE.md" || echo "Профиль ещё не выгружен — jarvis brain export" ;;
       restore)
-        ls -1t "$HERMES_HOME/plugin-data/jarvis-brain/"brain.bak-*.db 2>/dev/null | head -5 || { echo "бэкапов нет"; exit 1; }
-        src="${1:-$(ls -1t "$HERMES_HOME/plugin-data/jarvis-brain/"brain.bak-*.db | head -1)}"
+        # shellcheck disable=SC2012
+        latest="$(ls -1t "$HERMES_HOME/plugin-data/jarvis-brain/"brain.bak-*.db 2>/dev/null | head -1 || true)"
+        [[ -n "${1:-}" || -n "$latest" ]] || fail "бэкапов нет (они создаются ночной ревизией и командой jarvis brain backup)"
+        src="${1:-$latest}"; [[ -f "$src" ]] || fail "файл не найден: $src"
         read -r -p "Откатить базу из $src ? [y/N] " a; [[ "$a" == [yY] ]] || exit 0
         cp "$BRAIN_DB" "$BRAIN_DB.pre-restore-$(date +%Y%m%d-%H%M%S)"; cp "$src" "$BRAIN_DB"; rm -f "$BRAIN_DB-wal" "$BRAIN_DB-shm"; echo "ok" ;;
       import)  exec hermes chat -s jarvis/brain-import -q "Выполни первичный импорт знаний по навыку brain-import. Спрашивай подтверждение перед записью." ;;
@@ -145,12 +178,15 @@ case "$cmd" in
     printf "JARVIS %s · Hermes %s\n" "$(cat "$JARVIS_HOME/VERSION" 2>/dev/null || echo '?')" "$(hermes --version 2>/dev/null | head -1 || echo '?')" ;;
   app)
     case "${1:-open}" in
-      open)    open -a "$HOME/Applications/JARVIS.app" ;;
-      build)   bash "$JARVIS_HOME/app.src/build.sh" "$HOME/Applications/JARVIS.app" && open -a "$HOME/Applications/JARVIS.app" ;;
+      open)    [[ -d "$HOME/Applications/JARVIS.app" ]] || fail "JARVIS.app не собрано — jarvis app build"; open -a "$HOME/Applications/JARVIS.app" ;;
+      build)   [[ -f "$JARVIS_HOME/app.src/build.sh" ]] || fail "исходники приложения не установлены (bash install.sh)"
+               pkill -x JARVIS 2>/dev/null || true
+               bash "$JARVIS_HOME/app.src/build.sh" "$HOME/Applications/JARVIS.app" && open -a "$HOME/Applications/JARVIS.app" ;;
       quit)    osascript -e 'tell application "JARVIS" to quit' 2>/dev/null || pkill -x JARVIS || true ;;
       status)  pgrep -x JARVIS >/dev/null && echo "JARVIS.app запущен (pid $(pgrep -x JARVIS | head -1)) — значок ◉ в строке меню" || echo "JARVIS.app не запущен"
                ls -t "$HOME/Library/Logs/DiagnosticReports/JARVIS-"* 2>/dev/null | head -1 | xargs -I{} echo "последний crash-отчёт: {}" ;;
-      debug)   pkill -x JARVIS 2>/dev/null || true; exec "$HOME/Applications/JARVIS.app/Contents/MacOS/JARVIS" ;;
+      debug)   [[ -x "$HOME/Applications/JARVIS.app/Contents/MacOS/JARVIS" ]] || fail "JARVIS.app не собрано — jarvis app build"
+               pkill -x JARVIS 2>/dev/null || true; exec "$HOME/Applications/JARVIS.app/Contents/MacOS/JARVIS" ;;
       *) echo "jarvis app [open|build|quit|status|debug]"; exit 2 ;;
     esac ;;
   perms)

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 import subprocess
 import time
 from pathlib import Path
@@ -24,8 +23,9 @@ from .mac import MacError, as_str, json_err, json_ok, osascript, run, which
 # Настройки плагина подставляются из __init__.register() через configure()
 _SETTINGS = {
     "allow_raw_applescript": False,
-    "screenshot_dir": "~/.hermes/cache/jarvis/screenshots",
+    "screenshot_dir": "",            # пусто → $HERMES_HOME/cache/jarvis/screenshots
     "default_player": "auto",
+    "hud_url": "http://127.0.0.1:8765",
 }
 
 
@@ -43,7 +43,7 @@ def guarded(fn):
             return fn(args)
         except MacError as e:
             return json_err(str(e))
-        except Exception as e:  # noqa: BLE001 — обработчик не должен падать
+        except Exception as e:  # обработчик не должен падать
             return json_err(f"{type(e).__name__}: {e}")
 
     wrapper.__name__ = fn.__name__
@@ -392,7 +392,7 @@ def _stop_speech() -> list[str]:
         urllib.request.urlopen(urllib.request.Request(_SETTINGS.get("hud_url", "http://127.0.0.1:8765") + "/api/hush",
                                                       data=b"{}", headers={"Content-Type": "application/json"}, method="POST"), timeout=1).close()
         killed.append("hud")
-    except Exception:  # noqa: BLE001 — HUD может быть выключен
+    except Exception:  # HUD может быть выключен
         pass
     return killed
 
@@ -429,7 +429,7 @@ def mac_notify(args: dict) -> str:
 
 @guarded
 def mac_screenshot(args: dict) -> str:
-    out_dir = Path(os.path.expanduser(_SETTINGS["screenshot_dir"]))
+    out_dir = Path(_SETTINGS["screenshot_dir"]).expanduser() if _SETTINGS.get("screenshot_dir") else mac.cache_dir("screenshots")
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / mac.stamp("screen", "png")
     mode = args.get("mode") or "screen"
@@ -613,7 +613,13 @@ def mac_type(args: dict) -> str:
         osascript(f'tell application "System Events" to keystroke {as_str(text)}')
         return json_ok(typed=len(text))
     if action == "keystroke":
-        mods = args.get("modifiers") or []
+        allowed = {"command": "command", "cmd": "command", "option": "option", "alt": "option",
+                   "control": "control", "ctrl": "control", "shift": "shift"}
+        mods = []
+        for m in args.get("modifiers") or []:
+            if str(m).lower() not in allowed:  # только известные модификаторы — в AppleScript уходит строго allow-list
+                return json_err(f"Неизвестный модификатор {m!r}; допустимы: command, option, control, shift")
+            mods.append(allowed[str(m).lower()])
         using = ""
         if mods:
             using = " using {" + ", ".join(f"{m} down" for m in mods) + "}"
@@ -721,7 +727,7 @@ def mac_contacts(args: dict) -> str:
         end tell
         return out'''
     elif action == "list":
-        script = f'''
+        script = '''
         set out to ""
         tell application "Contacts"
             set ppl to (every person whose organization is not "")
@@ -827,7 +833,7 @@ def mac_file_manage(args: dict) -> str:
 def mac_applescript(args: dict) -> str:
     if not _SETTINGS.get("allow_raw_applescript"):
         return json_err(
-            "Выполнение произвольного AppleScript отключено. Включите в ~/.hermes/config.yaml: "
+            "Выполнение произвольного AppleScript отключено. Включите в config.yaml Hermes: "
             "plugins.entries.jarvis-macos.settings.allow_raw_applescript: true"
         )
     out = osascript(args.get("script", ""), language=args.get("language") or "applescript", timeout=120)

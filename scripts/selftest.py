@@ -6,7 +6,7 @@ JARVIS selftest — проверка macOS-слоя на РЕАЛЬНОМ Mac б
     ✔ работает  ·  ⚠ нет прав → какую панель открыть  ·  ✖ сломано (текст ошибки)
 Ничего не меняет в системе: не трогает громкость, окна, файлы; не отправляет сообщений.
 
-Запуск:  jarvis selftest        (или python3 ~/.hermes/jarvis/scripts/selftest.py [--json] [--fix])
+Запуск:  jarvis selftest        (или python3 $HERMES_HOME/jarvis/selftest.py [--json] [--fix])
   --fix   открыть панели Системных настроек для всех «⚠ нет прав»
 """
 
@@ -28,7 +28,7 @@ HERMES_HOME = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
 _HERE = Path(__file__).resolve().parent
 CANDIDATES = [
     _HERE.parent / "plugins" / "jarvis-macos",   # запуск из репозитория: scripts/selftest.py
-    _HERE / "plugins" / "jarvis-macos",          # запуск из ~/.hermes/jarvis/selftest.py (копия плагинов рядом)
+    _HERE / "plugins" / "jarvis-macos",          # запуск из $HERMES_HOME/jarvis/selftest.py (копия плагинов рядом)
     HERMES_HOME / "plugins" / "jarvis-macos",    # установленный плагин
 ]
 
@@ -84,7 +84,7 @@ def load_plugin(explicit: str | None = None):
             sys.modules["jarvis_macos_selftest"] = mod
             spec.loader.exec_module(mod)  # type: ignore[union-attr]
             return mod, base
-    raise SystemExit("Плагин jarvis-macos не найден ни в ~/.hermes/plugins, ни в репозитории")
+    raise SystemExit(f"Плагин jarvis-macos не найден ни в {HERMES_HOME}/plugins, ни в репозитории")
 
 
 def classify(result: dict) -> tuple[str, str, str | None]:
@@ -104,7 +104,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--fix", action="store_true", help="открыть панели настроек для недостающих прав")
-    ap.add_argument("--plugin", help="путь к папке плагина jarvis-macos (по умолчанию: репозиторий → ~/.hermes/plugins)")
+    ap.add_argument("--plugin", help="путь к папке плагина jarvis-macos (по умолчанию: репозиторий → $HERMES_HOME/plugins)")
     args = ap.parse_args()
 
     if platform.system() != "Darwin":
@@ -124,7 +124,7 @@ def main() -> int:
         t0 = time.time()
         try:
             res = json.loads(fn(a))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             res = {"success": False, "error": f"{type(e).__name__}: {e}"}
         ms = int((time.time() - t0) * 1000)
         st, note, url = classify(res)

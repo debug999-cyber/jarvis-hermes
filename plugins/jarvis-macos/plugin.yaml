@@ -48,9 +48,13 @@ config_schema:
     description: "Разрешить инструменту mac_applescript выполнять произвольные скрипты (иначе — только встроенные безопасные действия)"
   screenshot_dir:
     type: str
-    default: "~/.hermes/cache/jarvis/screenshots"
-    description: "Куда сохранять скриншоты и снимки с камеры"
+    default: ""
+    description: "Куда сохранять скриншоты (пусто → $HERMES_HOME/cache/jarvis/screenshots)"
   default_player:
     type: str
     default: "auto"
     description: "Плеер по умолчанию: auto | music | spotify"
+  hud_url:
+    type: str
+    default: "http://127.0.0.1:8765"
+    description: "Адрес HUD — mac_say stop просит его заглушить озвучку в браузере"

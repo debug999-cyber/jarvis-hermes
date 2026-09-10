@@ -51,7 +51,8 @@ jarvis hud log           # лог HUD
 
 | Симптом | Решение |
 |---|---|
-| `jarvis hud` — порт занят | `lsof -i :8765`; `jarvis hud stop`; либо `JARVIS_HUD_PORT=8770 jarvis hud` (и `plugins.entries.jarvis-core.settings.hud_url`) |
+| `jarvis hud` — порт занят | `lsof -i :8765`; `jarvis hud stop`; либо `JARVIS_HUD_PORT=8770 jarvis hud` (и `hud_url` в `plugins.entries.jarvis-core/jarvis-brain/jarvis-macos.settings`) |
+| HUD пишет «Модель вернула пустой ответ» | Провайдер ответил без текста (часто у нестандартных прокси-моделей). `hermes model` → выберите рабочую модель; проверьте `hermes chat -q привет` в терминале |
 | Открылся, но лента пустая | Плагин `jarvis-core` не загружен или `hud_url` не совпадает. Проверьте `/plugins` и `curl localhost:8765/api/status` |
 | Чат в HUD: «Hermes API недоступен» | Запустите `jarvis gateway`; в `~/.hermes/.env` должен быть `API_SERVER_ENABLED=true` и `API_SERVER_KEY`; `curl localhost:8642/health` |
 | 401 из API | Ключ в `.env` изменился после запуска HUD — `jarvis hud restart` |
@@ -93,8 +94,10 @@ jarvis hud log           # лог HUD
 
 ```bash
 launchctl list | grep ai.jarvis                      # статус
-launchctl unload ~/Library/LaunchAgents/ai.jarvis.hud.plist && launchctl load -w …   # перезапуск
-tail -f ~/.hermes/logs/jarvis-hud.log
+jarvis hud restart   /   jarvis gateway restart      # перезапуск (сами понимают, что сервис под launchd)
+jarvis hud stop      /   jarvis gateway stop         # остановить до следующего входа в систему (агент выгружается, KeepAlive не поднимет его снова)
+launchctl load -w ~/Library/LaunchAgents/ai.jarvis.hud.plist   # вернуть агент вручную раньше
+tail -f "$HERMES_HOME"/logs/jarvis-hud.log             # (или ~/.hermes/logs/…)
 ```
 Если после обновления macOS разрешения «слетели» — удалите терминал из списков и добавьте заново.
 
@@ -102,7 +105,7 @@ tail -f ~/.hermes/logs/jarvis-hud.log
 
 ```bash
 ./install.sh --yes --no-brew-tools --no-launchd    # переустановит плагины/скиллы/HUD/конфиг
-rm ~/.hermes/plugin-data/jarvis-core/state.json    # сбросить режим и таймеры
+rm ~/.hermes/plugin-data/jarvis-core/state.json    # сбросить режим и таймеры (или $HERMES_HOME/plugin-data/…)
 ```
 
 ## Куда смотреть в логах

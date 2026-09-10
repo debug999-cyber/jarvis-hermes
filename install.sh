@@ -75,7 +75,9 @@ if ! xcode-select -p >/dev/null 2>&1; then
 fi
 ok "Xcode Command Line Tools"
 
-if ! command -v brew >/dev/null 2>&1; then
+if ! command -v brew >/dev/null 2>&1 && [[ $INSTALL_BREW_TOOLS -eq 0 ]]; then
+  warn "Homebrew не найден — системные утилиты (portaudio/ffmpeg/blueutil) пропущены (--no-brew-tools)"
+elif ! command -v brew >/dev/null 2>&1; then
   if ask "Homebrew не найден. Установить?"; then
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     [[ -x /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -84,7 +86,7 @@ if ! command -v brew >/dev/null 2>&1; then
     die "Без Homebrew не поставить portaudio/ffmpeg. Установите вручную: https://brew.sh"
   fi
 fi
-ok "Homebrew $(brew --version | head -1 | awk '{print $2}')"
+command -v brew >/dev/null 2>&1 && ok "Homebrew $(brew --version 2>/dev/null | head -1 | awk '{print $2}')"
 
 if [[ $INSTALL_BREW_TOOLS -eq 1 ]]; then
   step "Системные зависимости (brew)"
@@ -136,6 +138,9 @@ fi
 step "Плагины JARVIS → $HERMES_HOME/plugins"
 mkdir -p "$HERMES_HOME/plugins"
 for plug in jarvis-core jarvis-macos jarvis-brain; do
+  [[ -f "$JARVIS_SRC/plugins/$plug/plugin.yaml" ]] || die "в архиве нет плагина $plug — скачайте проект заново"
+done
+for plug in jarvis-core jarvis-macos jarvis-brain; do
   rm -rf "$HERMES_HOME/plugins/$plug"
   cp -R "$JARVIS_SRC/plugins/$plug" "$HERMES_HOME/plugins/$plug"
   ok "$plug"
@@ -174,7 +179,7 @@ cp "$JARVIS_SRC/config/HEARTBEAT.md" "$JARVIS_HOME/" 2>/dev/null || true
 ok "HUD → $JARVIS_HOME/hud"
 
 # ─── 6. конфигурация ──────────────────────────────────────────────────────
-step "Конфигурация ~/.hermes/config.yaml"
+step "Конфигурация $HERMES_HOME/config.yaml"
 [[ -f "$HERMES_HOME/config.yaml" ]] || hermes config >/dev/null 2>&1 || true
 [[ -f "$HERMES_HOME/config.yaml" ]] || echo "{}" > "$HERMES_HOME/config.yaml"
 cp "$HERMES_HOME/config.yaml" "$HERMES_HOME/config.yaml.bak.jarvis"
@@ -188,7 +193,8 @@ env_has(){ grep -Eq "^$1=[^[:space:]#]+" "$ENV_FILE"; }   # ключ есть И
 env_has API_SERVER_ENABLED || { sed -i '' '/^API_SERVER_ENABLED=/d' "$ENV_FILE"; echo "API_SERVER_ENABLED=true" >> "$ENV_FILE"; }
 if ! env_has API_SERVER_KEY; then
   sed -i '' '/^API_SERVER_KEY=/d' "$ENV_FILE"
-  echo "API_SERVER_KEY=$(openssl rand -hex 24)" >> "$ENV_FILE"; ok "сгенерирован API_SERVER_KEY"
+  KEY="$(openssl rand -hex 24 2>/dev/null || "$VENV_PY" -c 'import secrets;print(secrets.token_hex(24))')"
+  echo "API_SERVER_KEY=$KEY" >> "$ENV_FILE"; ok "сгенерирован API_SERVER_KEY"
 else ok "API_SERVER_KEY уже задан"; fi
 env_has API_SERVER_HOST || { sed -i '' '/^API_SERVER_HOST=/d' "$ENV_FILE"; echo "API_SERVER_HOST=127.0.0.1" >> "$ENV_FILE"; }
 chmod 600 "$ENV_FILE"
@@ -267,7 +273,11 @@ fi
 # ─── 11. доктор ───────────────────────────────────────────────────────────
 step "Диагностика"
 hermes doctor 2>/dev/null | tail -n 25 || true
-hermes plugins list 2>/dev/null | grep -i jarvis || warn "плагины не отображаются — выполните: hermes plugins enable jarvis-core jarvis-macos jarvis-brain"
+if ! hermes plugins list 2>/dev/null | grep -qi jarvis-core; then
+  hermes plugins enable jarvis-core jarvis-macos jarvis-brain >/dev/null 2>&1 && ok "плагины включены" \
+    || warn "плагины не отображаются — выполните: hermes plugins enable jarvis-core jarvis-macos jarvis-brain"
+fi
+hermes plugins list 2>/dev/null | grep -i jarvis || true
 
 # ─── итог ─────────────────────────────────────────────────────────────────
 cat <<EOF

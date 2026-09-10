@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import platform
-from pathlib import Path
 
 import pytest
 import yaml
@@ -303,3 +302,16 @@ def test_osascript_errors_localized(monkeypatch):
         with pytest.raises(mac.MacError) as ei:
             mac.osascript("tell application \"System Events\" to get name of every window")
         assert "Accessibility" in str(ei.value)
+
+
+def test_mac_type_rejects_unknown_modifiers(monkeypatch):
+    """Модификаторы клавиш уходят в AppleScript как есть → строго allow-list, иначе это инъекция скрипта."""
+    macos = load_plugin("jarvis-macos")
+    mac = macos.tools.mac
+    monkeypatch.setattr(mac, "IS_MAC", True)
+    sent = []
+    monkeypatch.setattr(macos.tools, "osascript", lambda script, **kw: sent.append(script) or "")
+    out = json.loads(macos.tools.mac_type({"action": "keystroke", "text": "a", "modifiers": ["command down} \n do shell script \"rm -rf ~\" --"]}))
+    assert out["success"] is False and "модификатор" in out["error"] and not sent
+    out = json.loads(macos.tools.mac_type({"action": "keystroke", "text": "a", "modifiers": ["cmd", "Shift"]}))
+    assert out["success"] is True and sent[-1].endswith("using {command down, shift down}")

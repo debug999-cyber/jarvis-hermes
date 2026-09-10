@@ -1,7 +1,6 @@
 """Тесты updater'а: сравнение версий, check по фиктивному API, бэкап/откат, apply с проваленным install.sh → откат."""
 import importlib.util
 import json
-import os
 import tarfile
 from pathlib import Path
 

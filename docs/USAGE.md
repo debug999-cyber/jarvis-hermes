@@ -11,20 +11,20 @@
 | `jarvis` | голосовой TUI Hermes с профилем JARVIS (wake word + Ctrl+B) |
 | `jarvis chat` | классический CLI (`hermes chat`) |
 | `jarvis ask "вопрос"` | один вопрос — один ответ, без интерактива (удобно в скриптах/Shortcuts) |
-| `jarvis hud` / `hud stop` / `hud log` | HUD в браузере |
-| `jarvis gateway` / `gateway stop` | мессенджеры + OpenAI-совместимый API (`:8642`) |
+| `jarvis hud` / `hud stop` / `hud restart` / `hud status` / `hud log` | HUD в браузере (если HUD под launchd — команды управляют агентом launchd) |
+| `jarvis gateway` / `gateway stop` / `gateway restart` | мессенджеры + OpenAI-совместимый API (`:8642`) |
+| `jarvis hush` | немедленно замолчать: `say`, `afplay`, озвучка HUD |
 | `jarvis up` | gateway + HUD + TUI одной командой |
 | `jarvis status` | состояние компонентов |
 | `jarvis brief` | брифинг прямо сейчас |
-| `jarvis brain [stats\|review\|export\|log\|backup\|sql]` | база знаний: статистика, ревизия сейчас, выгрузка в Markdown, журнал изменений |
+| `jarvis brain [stats\|review\|export\|diary\|profile\|log\|backup\|restore\|sql\|path]` | база знаний: статистика, ревизия сейчас, выгрузка в Markdown, дневник, журнал изменений, бэкап/откат |
 | `jarvis doctor` | `hermes doctor` + проверка плагинов |
-| `jarvis update` | обновить Hermes и плагины |
 | `jarvis perms` | открыть панели разрешений macOS |
 | `jarvis selftest [--fix]` | проверить все mac_* инструменты на этом Mac (без LLM); `--fix` открывает панели недостающих прав |
 | `jarvis brain import` | первичный импорт контактов/проектов в базу знаний |
 | `jarvis heartbeat` | одна тихая проверка по `HEARTBEAT.md` (то, что cron делает каждые 45 мин) |
-| `jarvis update [--check\|--status\|--rollback\|--channel\|--auto]` | автообновление с GitHub (см. docs/APP.md) |
-| `jarvis app [build\|quit]` | приложение строки меню JARVIS.app |
+| `jarvis update [--check\|--status\|--rollback\|--force\|--channel\|--auto\|--hermes]` | автообновление JARVIS с GitHub (см. docs/APP.md); `--hermes` — обновить сам Hermes |
+| `jarvis app [open\|build\|quit\|status\|debug]` | приложение строки меню JARVIS.app |
 | `jarvis version` | версии JARVIS и Hermes |
 | `jarvis config` | открыть config.yaml |
 | `jarvis logs` | хвост логов |

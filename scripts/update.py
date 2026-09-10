@@ -99,7 +99,7 @@ def notify(title: str, text: str) -> None:
         req = urllib.request.Request(os.environ.get("JARVIS_HUD_URL", "http://127.0.0.1:8765") + "/api/event",
                                      data=payload, headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=2).read()
-    except Exception:  # noqa: BLE001 — HUD может быть выключен
+    except Exception:  # HUD может быть выключен
         pass
 
 
@@ -133,7 +133,7 @@ def fetch_latest(repo: str, channel: str) -> dict:
         with urllib.request.urlopen(urllib.request.Request(
                 f"https://raw.githubusercontent.com/{repo}/{sha}/VERSION", headers=UA), timeout=10) as r:
             version = r.read().decode().strip()
-    except Exception:  # noqa: BLE001
+    except Exception:
         version = sha[:7]
     return {"version": version, "commit": sha, "notes": commit["commit"]["message"][:1500],
             "tarball": f"https://github.com/{repo}/archive/{sha}.tar.gz",
@@ -149,7 +149,7 @@ def check(do_notify: bool = False) -> dict:
                   "latest": latest["version"], "latest_commit": latest["commit"], "available": available,
                   "notes": latest["notes"], "url": latest["url"], "tarball": latest["tarball"],
                   "channel": latest["channel"], "error": ""}
-    except Exception as e:  # noqa: BLE001 — нет сети и т. п.
+    except Exception as e:  # нет сети и т. п.
         result = {**read_json(UPDATE_JSON), "checked_at": now_iso(), "current": cur["version"], "error": str(e)[:200]}
         result.setdefault("available", False)
     write_json(UPDATE_JSON, result)
@@ -261,13 +261,54 @@ def restart_services() -> None:
     if sys.platform != "darwin":
         return
     uid = os.getuid()
-    for label in ("ai.jarvis.hud", "ai.jarvis.gateway"):
-        subprocess.run(["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"], capture_output=True, timeout=15)
+    env = {**os.environ, "HERMES_HOME": str(HERMES_HOME)}
+
+    def loaded(label: str) -> bool:
+        try:
+            return subprocess.run(["launchctl", "print", f"gui/{uid}/{label}"], capture_output=True, timeout=10).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def run(cmd: list[str], timeout: int) -> None:
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=timeout, env=env)
+        except (OSError, subprocess.SubprocessError):
+            pass  # перезапуск — best effort; сама установка уже завершена
+
     jarvis = Path.home() / ".local" / "bin" / "jarvis"
-    if jarvis.exists():
-        subprocess.run([str(jarvis), "hud", "restart"], capture_output=True, timeout=20)
-    hermes = shutil.which("hermes") or str(Path.home() / ".local" / "bin" / "hermes")
-    subprocess.run([hermes, "gateway", "restart"], capture_output=True, timeout=60)
+    if loaded("ai.jarvis.hud"):
+        run(["launchctl", "kickstart", "-k", f"gui/{uid}/ai.jarvis.hud"], 15)
+    elif jarvis.exists():
+        run([str(jarvis), "hud", "restart"], 20)
+    if loaded("ai.jarvis.gateway"):
+        run(["launchctl", "kickstart", "-k", f"gui/{uid}/ai.jarvis.gateway"], 15)
+    else:
+        hermes = shutil.which("hermes") or str(Path.home() / ".local" / "bin" / "hermes")
+        run([hermes, "gateway", "restart"], 60)
+
+
+def rebuild_app() -> str:
+    """Пересобрать JARVIS.app из свежего app.src, если приложение установлено и есть swiftc.
+
+    install.sh при обновлении запускается с --no-app (чтобы не открывать окна из демона), поэтому
+    приложение строки меню пересобираем здесь; если оно запущено — перезапускаем отдельным процессом,
+    чтобы обновление, начатое из самого приложения, не убило само себя.
+    """
+    if sys.platform != "darwin":
+        return ""
+    app = Path.home() / "Applications" / "JARVIS.app"
+    build = JARVIS_HOME / "app.src" / "build.sh"
+    if not app.exists() or not build.exists() or not shutil.which("swiftc"):
+        return ""
+    proc = subprocess.run(["bash", str(build), str(app)], capture_output=True, text=True, timeout=300)
+    if proc.returncode != 0:
+        return f"JARVIS.app не пересобрано: {(proc.stderr or proc.stdout)[-300:]}"
+    running = subprocess.run(["pgrep", "-x", "JARVIS"], capture_output=True).returncode == 0
+    if running:
+        subprocess.Popen(["bash", "-c", "sleep 2; osascript -e 'tell application \"JARVIS\" to quit' >/dev/null 2>&1; "
+                          "sleep 1; pkill -x JARVIS >/dev/null 2>&1; open -a \"$0\"", str(app)],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return "JARVIS.app пересобрано" + (" и перезапускается" if running else "")
 
 
 def apply(force: bool = False, tarball: str | None = None, version: str | None = None) -> dict:
@@ -311,6 +352,12 @@ def apply(force: bool = False, tarball: str | None = None, version: str | None =
     write_json(UPDATE_JSON, {**info, "available": False, "current": new["version"], "applied_at": now_iso()})
     restart_services()
     log.append("✔ сервисы перезапущены")
+    try:
+        msg = rebuild_app()
+    except (OSError, subprocess.SubprocessError) as e:  # приложение — не критично для работы JARVIS
+        msg = f"JARVIS.app не пересобрано: {e}"
+    if msg:
+        log.append(("✔ " if msg.startswith("JARVIS.app пересобрано") else "⚠ ") + msg)
     notify("JARVIS обновлён", f"Версия {new['version']}. Откат: jarvis update --rollback")
     return {"updated": True, "from": cur["version"], "to": new["version"], "backup": str(backup), "log": log}
 
@@ -339,7 +386,7 @@ def auto() -> dict:
     if cur["auto_update"] == "auto" and res.get("available") and not res.get("error"):
         try:
             return apply()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             notify("JARVIS: обновление не удалось", str(e)[:120])
             return {"updated": False, "error": str(e)}
     return res
@@ -414,7 +461,7 @@ def main(argv: list[str] | None = None) -> int:
                   + (f" · ошибка: {r['last_error']}" if r['last_error'] else ""))
             print(f"откат возможен: {'да → ' + r['rollback_available'] if r['rollback_available'] else 'нет'}")
         return 0
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"✖ {e}", file=sys.stderr)
         return 1
 

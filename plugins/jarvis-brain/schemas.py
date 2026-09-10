@@ -120,7 +120,7 @@ BRAIN_REVIEW = {
             "summary": {"type": "string"},
             "highlights": {"type": "string"},
             "report": {"type": "string", "description": "Краткий отчёт для finish"},
-            "path": {"type": "string", "description": "Куда выгрузить Markdown для export (по умолчанию ~/.hermes/jarvis/BRAIN.md)"},
+            "path": {"type": "string", "description": "Куда выгрузить Markdown для export (по умолчанию $HERMES_HOME/jarvis/BRAIN.md)"},
             "limit": {"type": "integer", "default": 30},
         },
         "required": ["action"],

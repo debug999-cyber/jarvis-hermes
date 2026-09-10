@@ -2,7 +2,7 @@
 Хранилище «мозга» JARVIS — SQLite + FTS5.
 
 Почему SQLite: один файл, транзакции, полнотекстовый поиск из коробки, ноль зависимостей,
-легко бэкапить и смотреть любым просмотрщиком. Файл: ~/.hermes/plugin-data/jarvis-brain/brain.db
+легко бэкапить и смотреть любым просмотрщиком. Файл: $HERMES_HOME/plugin-data/jarvis-brain/brain.db
 
 Модель данных (см. SCHEMA):
   kinds      — таксономия: типы знаний (fact, preference, person, project…). Агент может её менять.
@@ -67,7 +67,7 @@ def redact(text: str) -> tuple[str, bool]:
         hit = hit or n > 0
     return out, hit
 
-SCHEMA = f"""
+SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS kinds(
     name TEXT PRIMARY KEY, description TEXT DEFAULT '', created_at TEXT);
@@ -202,8 +202,8 @@ class Brain:
                 from plugins.plugin_storage import plugin_data_dir  # type: ignore
 
                 base = str(plugin_data_dir("jarvis-brain"))
-            except Exception:  # noqa: BLE001 — вне Hermes
-                base = os.path.expanduser("~/.hermes/plugin-data/jarvis-brain")
+            except Exception:  # вне Hermes
+                base = os.path.join(os.path.expanduser(os.environ.get("HERMES_HOME") or "~/.hermes"), "plugin-data", "jarvis-brain")
         return Path(base) / "brain.db"
 
     def _init_schema(self) -> None:
@@ -794,7 +794,7 @@ class Brain:
     def stats(self) -> dict:
         with self._lock:
             c = self._conn
-            one = lambda sql, *p: c.execute(sql, p).fetchone()[0]  # noqa: E731
+            one = lambda sql, *p: c.execute(sql, p).fetchone()[0]
             last_review = c.execute("SELECT finished_at, report FROM reviews ORDER BY id DESC LIMIT 1").fetchone()
             return {
                 "db_path": str(self.path),

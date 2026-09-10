@@ -27,12 +27,13 @@ def _load_settings(ctx) -> dict:
     out = {}
     for key, default in (
         ("allow_raw_applescript", False),
-        ("screenshot_dir", "~/.hermes/cache/jarvis/screenshots"),
+        ("screenshot_dir", ""),          # пусто → $HERMES_HOME/cache/jarvis/screenshots
         ("default_player", "auto"),
+        ("hud_url", "http://127.0.0.1:8765"),
     ):
         try:
             out[key] = ctx.get_config(key, default=default)
-        except Exception:  # noqa: BLE001 — старые версии Hermes могут не иметь get_config
+        except Exception:  # старые версии Hermes могут не иметь get_config
             out[key] = default
     return out
 
@@ -78,7 +79,7 @@ def register(ctx) -> None:
     ):
         try:
             ctx.register_command(name, fn, description=desc)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("register_command(%s) недоступен: %s", name, e)
 
     logger.info("jarvis-macos: зарегистрировано %d инструментов", len(schemas.ALL_SCHEMAS))

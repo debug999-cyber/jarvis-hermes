@@ -51,8 +51,8 @@ config_schema:
     description: "HUD для событий brain.*"
   export_path:
     type: str
-    default: "~/.hermes/jarvis/BRAIN.md"
-    description: "Куда выгружать Markdown-снимок базы"
+    default: ""
+    description: "Куда выгружать Markdown-снимок базы (пусто → $HERMES_HOME/jarvis/BRAIN.md)"
   backup_mirror:
     type: str
     default: ""

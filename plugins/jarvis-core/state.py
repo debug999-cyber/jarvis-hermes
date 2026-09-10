@@ -2,7 +2,7 @@
 Долговременное состояние ядра JARVIS (режим, таймеры).
 
 Хранится в JSON-файле в каталоге данных плагина
-(~/.hermes/plugin-data/jarvis-core/state.json) — переживает рестарты и
+($HERMES_HOME/plugin-data/jarvis-core/state.json) — переживает рестарты и
 обновления плагина. Доступ потокобезопасен (таймеры срабатывают из фоновых потоков).
 """
 
@@ -24,6 +24,11 @@ MODE_HINTS = {
 _LOCK = threading.RLock()
 
 
+def hermes_home() -> str:
+    """Каталог данных Hermes: $HERMES_HOME или ~/.hermes (нельзя зашивать ~/.hermes — у пользователя он может быть другим)."""
+    return os.path.expanduser(os.environ.get("HERMES_HOME") or "~/.hermes")
+
+
 def _path() -> Path:
     base = os.environ.get("JARVIS_STATE_DIR")
     if not base:
@@ -32,8 +37,8 @@ def _path() -> Path:
             from plugins.plugin_storage import plugin_data_dir  # type: ignore
 
             base = str(plugin_data_dir("jarvis-core"))
-        except Exception:  # noqa: BLE001 — вне Hermes (тесты)
-            base = os.path.expanduser("~/.hermes/plugin-data/jarvis-core")
+        except Exception:  # вне Hermes (тесты)
+            base = os.path.join(hermes_home(), "plugin-data", "jarvis-core")
     p = Path(base)
     p.mkdir(parents=True, exist_ok=True)
     return p / "state.json"
@@ -42,7 +47,7 @@ def _path() -> Path:
 def _load() -> dict:
     try:
         return json.loads(_path().read_text())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {"mode": "normal", "timers": []}
 
 

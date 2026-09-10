@@ -5,7 +5,10 @@
 
 Использование: python3 make_icon.py <папка.iconset>   (дальше iconutil -c icns …)
 """
-import math, struct, sys, zlib
+import math
+import struct
+import sys
+import zlib
 from pathlib import Path
 
 CYAN_HI = (150, 240, 255)

@@ -56,7 +56,7 @@ class HudClient:
                         self._q.get_nowait()
                     except queue.Empty:
                         break
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.debug("HUD emit failed: %s", e)
 
     def _post(self, item: dict) -> None:

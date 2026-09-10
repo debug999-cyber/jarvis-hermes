@@ -38,17 +38,18 @@ from urllib.parse import parse_qs, urlparse
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
 sys.path.insert(0, str(HERE))
-import sysinfo  # noqa: E402  — живые данные виджетов (батарея, календарь, таймеры…)
+import sysinfo  # noqa: E402 — живые данные виджетов (батарея, календарь, таймеры…); путь добавлен строкой выше
 
-DASH: "sysinfo.Collector | None" = None
+DASH: sysinfo.Collector | None = None
+HERMES_HOME = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
 
 CONFIG = {
     "hermes_url": os.environ.get("JARVIS_HERMES_URL", "http://127.0.0.1:8642"),
     "hermes_key": os.environ.get("API_SERVER_KEY", ""),
     "model": os.environ.get("JARVIS_MODEL", "hermes-agent"),
-    "brain_db": os.environ.get("JARVIS_BRAIN_DB", os.path.expanduser("~/.hermes/plugin-data/jarvis-brain/brain.db")),
-    "allowed_file_roots": [
-        os.path.expanduser("~/.hermes/cache"),
+    "brain_db": os.environ.get("JARVIS_BRAIN_DB", str(HERMES_HOME / "plugin-data" / "jarvis-brain" / "brain.db")),
+    "allowed_file_roots": [  # /file?path= отдаёт файлы только отсюда (скриншоты, снимки камеры, пользовательские папки)
+        str(HERMES_HOME / "cache"),
         os.path.expanduser("~/Pictures"),
         os.path.expanduser("~/Desktop"),
         os.path.expanduser("~/Downloads"),
@@ -57,10 +58,10 @@ CONFIG = {
 
 
 def _load_env_key() -> str:
-    """Прочитать API_SERVER_KEY из ~/.hermes/.env, если не задан в окружении."""
+    """Прочитать API_SERVER_KEY из $HERMES_HOME/.env, если не задан в окружении."""
     if CONFIG["hermes_key"]:
         return CONFIG["hermes_key"]
-    env = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser() / ".env"
+    env = HERMES_HOME / ".env"
     try:
         for line in env.read_text().splitlines():
             if line.startswith("API_SERVER_KEY="):
@@ -76,7 +77,7 @@ def _explain_http_error(code: int, body: str) -> str:
     """Человеческое объяснение ошибки от Hermes/провайдера вместо «HTTP 405: Error code: 405»."""
     body = body.strip()[:300]
     hints = {
-        401: "Hermes отклонил ключ HUD. Проверьте API_SERVER_KEY в ~/.hermes/.env и перезапустите `jarvis up`.",
+        401: f"Hermes отклонил ключ HUD. Проверьте API_SERVER_KEY в {HERMES_HOME}/.env и перезапустите `jarvis hud restart`.",
         403: "Доступ запрещён провайдером модели. Проверьте ключ провайдера: `hermes model`.",
         404: "Модель не найдена у провайдера. Выберите другую: `hermes model`.",
         405: "Провайдер модели не принимает запросы (405) — обычно неверный URL/endpoint кастомной модели. "
@@ -100,7 +101,7 @@ def brain_overview(query: str = "", limit: int = 12) -> dict:
     try:
         c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1)
         c.row_factory = sqlite3.Row
-        one = lambda sql: c.execute(sql).fetchone()[0]  # noqa: E731
+        one = lambda sql: c.execute(sql).fetchone()[0]
         out = {
             "ok": True,
             "notes": one("SELECT COUNT(*) FROM notes WHERE status='active'"),
@@ -248,6 +249,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_json(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
+        if n > 2_000_000:  # защита от случайного/злонамеренного гигантского тела
+            return {}
         raw = self.rfile.read(n) if n else b"{}"
         try:
             return json.loads(raw.decode() or "{}")
@@ -269,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     # ── GET ──────────────────────────────────────────────────────────────
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         u = urlparse(self.path)
         if u.path in ("/", "/index.html"):
             return self._send_file(STATIC / "index.html", "text/html; charset=utf-8",
@@ -315,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         return origin.split("://", 1)[-1] == host
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         u = urlparse(self.path)
         if not self._same_origin():
             return self._json(403, {"error": "cross-origin requests are not allowed"})
@@ -373,7 +376,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "label": label, "target": target.isoformat()})
         return self._json(400, {"error": "action: set|cancel"})
 
-    def do_OPTIONS(self):  # noqa: N802
+    def do_OPTIONS(self):
         # CORS-preflight сознательно не разрешаем: HUD — same-origin приложение
         self.send_response(204)
         self.end_headers()
@@ -408,7 +411,7 @@ class Handler(BaseHTTPRequestHandler):
             req = urllib.request.Request(CONFIG["hermes_url"] + "/health")
             with urllib.request.urlopen(req, timeout=2) as r:
                 return {"up": True, "status": r.status}
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return {"up": False, "error": str(e)[:120]}
 
     def _chat(self, body: dict) -> None:
@@ -428,10 +431,10 @@ class Handler(BaseHTTPRequestHandler):
             upstream = urllib.request.urlopen(req, timeout=600)
         except urllib.error.HTTPError as e:
             return self._json(e.code, {"error": _explain_http_error(e.code, e.read().decode(errors="ignore"))})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return self._json(502, {
                 "error": f"Hermes API недоступен: {e}. Запустите `hermes gateway` и убедитесь, что "
-                         f"в ~/.hermes/.env есть API_SERVER_ENABLED=true и API_SERVER_KEY."
+                         f"в {HERMES_HOME}/.env есть API_SERVER_ENABLED=true и API_SERVER_KEY."
             })
 
         self.send_response(200)
@@ -456,7 +459,7 @@ class Handler(BaseHTTPRequestHandler):
                         if delta:
                             full.append(delta)
                             BUS.publish({"event": "stream.delta", "data": {"delta": delta}})
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         pass
                 elif line.startswith("event: hermes.tool.progress"):
                     pass  # следующая data-строка содержит имя инструмента — прокинем как есть
@@ -464,13 +467,17 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         d = json.loads(line[6:])
                         BUS.publish({"event": "tool.start", "data": {"tool": d.get("tool") or d.get("name", "?"), "args": ""}})
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         pass
             self.wfile.write(b"\n")
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass
         finally:
+            try:
+                upstream.close()
+            except Exception:
+                pass
             BUS.publish({"event": "turn.end", "data": {"text": "".join(full)[:2000], "source": "hud"}})
             with _PROXY_LOCK:
                 _PROXY_TURNS = max(0, _PROXY_TURNS - 1)
@@ -483,7 +490,7 @@ def main() -> None:
     ap.add_argument("--host", default=os.environ.get("JARVIS_HUD_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("JARVIS_HUD_PORT", "8765")))
     ap.add_argument("--hermes", default=CONFIG["hermes_url"], help="URL API-сервера Hermes")
-    ap.add_argument("--key", default="", help="API_SERVER_KEY (иначе читается из ~/.hermes/.env)")
+    ap.add_argument("--key", default="", help="API_SERVER_KEY (иначе читается из $HERMES_HOME/.env)")
     ap.add_argument("--model", default=CONFIG["model"])
     ap.add_argument("--demo", action="store_true", help="демо-данные в виджетах (для скриншотов и разработки)")
     args = ap.parse_args()

@@ -99,7 +99,7 @@ def test_chat_without_hermes_gives_helpful_error(hud_server):
 
 def test_hud_client_never_blocks():
     sys.path.insert(0, str(ROOT / "plugins" / "jarvis-core"))
-    from hud_client import HudClient  # noqa: E402
+    from hud_client import HudClient
 
     c = HudClient("http://127.0.0.1:1")
     t0 = time.time()

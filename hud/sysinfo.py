@@ -191,7 +191,7 @@ def version_info() -> dict:
 
 
 def hermes_model() -> str:
-    """model.default из ~/.hermes/config.yaml (без PyYAML — простой разбор)."""
+    """model.default из $HERMES_HOME/config.yaml (без PyYAML — простой разбор)."""
     try:
         lines = CONFIG_YAML.read_text().splitlines()
     except OSError:
@@ -282,7 +282,7 @@ class Collector:
                 time.sleep(self.fast)
                 try:
                     self.refresh()
-                except Exception:  # noqa: BLE001 — сборщик не должен падать
+                except Exception:  # сборщик не должен падать
                     pass
         threading.Thread(target=loop, name="hud-sysinfo", daemon=True).start()
 
@@ -311,7 +311,7 @@ class TimerWatcher:
                         if (now - target).total_seconds() > 3:
                             if cancel_timer(t["label"], t["target"]):
                                 self.on_fire(t["label"])
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
         threading.Thread(target=loop, name="hud-timers", daemon=True).start()
 
@@ -319,6 +319,6 @@ class TimerWatcher:
 def notify(title: str, text: str, sound: str = "Glass") -> None:
     if not IS_MAC:
         return
-    esc = lambda s: s.replace("\\", "\\\\").replace('"', '\\"')  # noqa: E731
+    esc = lambda s: s.replace("\\", "\\\\").replace('"', '\\"')
     subprocess.Popen(["osascript", "-e", f'display notification "{esc(text)}" with title "{esc(title)}" sound name "{sound}"'])
     subprocess.Popen(["afplay", f"/System/Library/Sounds/{sound}.aiff"])

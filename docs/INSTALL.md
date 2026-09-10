@@ -48,7 +48,9 @@ cd jarvis-hermes
 12. **Модель** — если не настроена, откроется `hermes model`.
 13. **hermes doctor** — диагностика.
 
-Флаги: `--yes` (без вопросов), `--no-launchd`, `--no-voice`, `--no-brew-tools`, `--hermes-home=DIR`.
+Флаги: `--yes` (без вопросов), `--no-launchd`, `--no-voice`, `--no-brew-tools`, `--no-cron`, `--no-app`, `--hermes-home=DIR`.
+
+Если Hermes у вас живёт не в `~/.hermes` (например, `~/Documents/hermes/.hermes`) — передайте `--hermes-home=…` или задайте `HERMES_HOME`: установщик запишет путь в `~/.jarvis-home`, и команда `jarvis`, HUD, updater и JARVIS.app будут использовать его автоматически.
 
 ## 3. Разрешения macOS (обязательно)
 
