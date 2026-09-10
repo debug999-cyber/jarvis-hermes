@@ -3,8 +3,6 @@ Gateway-хук JARVIS.
 
 * gateway:startup → запускает одноразового агента с инструкциями из ~/.hermes/BOOT.md
                     (проверка cron, состояния системы, приветствие) — в фоне, не блокируя gateway.
-* agent:start/end → дублирует активность gateway-сессий (Telegram, Discord…) на HUD,
-                    чтобы на экране было видно, что JARVIS работает, даже если команда пришла с телефона.
 """
 from __future__ import annotations
 
@@ -81,7 +79,5 @@ async def handle(event_type: str, context: dict) -> None:
         _hud("session.start", {"session": "gateway", "model": "", "platform": ",".join(context.get("platforms", []))})
         if BOOT_FILE.exists() and BOOT_FILE.read_text(encoding="utf-8").strip():
             threading.Thread(target=_run_boot, args=(BOOT_FILE.read_text(encoding="utf-8"),), name="jarvis-boot", daemon=True).start()
-    elif event_type == "agent:start":
-        _hud("turn.start", {"text": context.get("message", ""), "source": context.get("platform", "gateway")})
-    elif event_type == "agent:end":
-        _hud("turn.end", {"text": context.get("response", ""), "source": context.get("platform", "gateway")})
+    # agent:start / agent:end на HUD не зеркалим: то же самое уже делает плагин jarvis-core
+    # через pre/post_llm_call — иначе каждый ход из Telegram/Discord появлялся дважды.

@@ -63,6 +63,9 @@ def _frontmost() -> str:
         return ""
 
 
+_UPDATE_MENTIONED: dict[str, bool] = {}
+
+
 def build_context() -> str:
     """Короткий блок текста, который увидит модель перед сообщением пользователя."""
     now = dt.datetime.now()
@@ -80,8 +83,10 @@ def build_context() -> str:
     if timers:
         parts.append("Активные таймеры: " + "; ".join(f"«{t['label']}» через {t['remaining_h']}" for t in timers) + ".")
     upd = update_status()
-    if upd["update_available"]:
-        parts.append(f"Доступно обновление JARVIS {upd['latest']} (сейчас {upd['version']}) — упомяни один раз, если уместно; ставить только по просьбе.")
+    if upd["update_available"] and not _UPDATE_MENTIONED.get(upd["latest"]):
+        # только один раз за процесс — иначе модель повторяла это в каждом ответе
+        _UPDATE_MENTIONED[upd["latest"]] = True
+        parts.append(f"Доступно обновление JARVIS {upd['latest']} (сейчас {upd['version']}) — можешь упомянуть одной фразой; ставить только по просьбе.")
     parts.append(f"Обращайся к пользователю: {_cfg['user_name']}.")
     return "[JARVIS context] " + " ".join(parts)
 

@@ -2,5 +2,3 @@ name: jarvis-boot
 description: При старте gateway выполняет ~/.hermes/BOOT.md (стартовый чек-лист JARVIS) и шлёт событие на HUD
 events:
   - gateway:startup
-  - agent:start
-  - agent:end

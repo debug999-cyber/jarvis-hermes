@@ -378,11 +378,33 @@ def mac_media(args: dict) -> str:
         return json_ok(player=app, state="unknown")
 
 
+def _stop_speech() -> list[str]:
+    """Остановить всё, что говорит вслух: `say`, `afplay`, и попросить HUD заглушить озвучку браузера."""
+    killed = []
+    for proc in ("say", "afplay"):
+        try:
+            if subprocess.run(["pkill", "-x", proc], capture_output=True, timeout=3).returncode == 0:
+                killed.append(proc)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        import urllib.request
+        urllib.request.urlopen(urllib.request.Request(_SETTINGS.get("hud_url", "http://127.0.0.1:8765") + "/api/hush",
+                                                      data=b"{}", headers={"Content-Type": "application/json"}, method="POST"), timeout=1).close()
+        killed.append("hud")
+    except Exception:  # noqa: BLE001 — HUD может быть выключен
+        pass
+    return killed
+
+
 @guarded
 def mac_say(args: dict) -> str:
+    if args.get("action") == "stop":
+        return json_ok(stopped=_stop_speech())
     text = args.get("text", "")
     if not text:
         return json_err("Пустой текст")
+    _stop_speech()  # новая фраза всегда перебивает предыдущую — никаких наложений
     cmd = ["say"]
     if args.get("voice"):
         cmd += ["-v", args["voice"]]

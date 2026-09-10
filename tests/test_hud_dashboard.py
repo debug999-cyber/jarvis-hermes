@@ -130,3 +130,31 @@ def test_hermes_model_parser(tmp_path, monkeypatch):
     assert sysinfo.hermes_model() == "anthropic/claude-sonnet-4.5"
     cfg.write_text('model: "gpt-4o"\n')
     assert sysinfo.hermes_model() == "gpt-4o"
+
+
+def test_hush_endpoint_publishes_speech_stop(srv, monkeypatch):
+    monkeypatch.setattr(hud.sys, "platform", "linux")  # без pkill
+    q = hud.BUS.subscribe()
+    status, r = _post(srv + "/api/hush", {})
+    assert status == 200 and r["ok"]
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait()["event"])
+    hud.BUS.unsubscribe(q)
+    assert "speech.stop" in events
+
+
+def test_plugin_turn_events_dropped_while_proxy_chat_in_flight(srv):
+    """Пока идёт чат через /api/chat, дубли turn.*/stream.* от плагина отбрасываются."""
+    hud._PROXY_TURNS = 1
+    try:
+        _, r = _post(srv + "/api/event", {"event": "stream.delta", "data": {"delta": "x"}})
+        assert r.get("dropped")
+        _, r = _post(srv + "/api/event", {"event": "turn.end", "data": {"text": "bg", "source": "cron"}})
+        assert not r.get("dropped")  # фоновые задачи проходят
+        _, r = _post(srv + "/api/event", {"event": "tool.start", "data": {"tool": "x"}})
+        assert not r.get("dropped")  # инструменты проходят
+    finally:
+        hud._PROXY_TURNS = 0
+    _, r = _post(srv + "/api/event", {"event": "stream.delta", "data": {"delta": "x"}})
+    assert not r.get("dropped")

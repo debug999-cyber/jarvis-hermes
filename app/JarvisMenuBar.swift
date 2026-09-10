@@ -148,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("Голосовой чат в Terminal", #selector(openVoice), key: "j")
         add("Спросить…", #selector(ask), key: "a")
         add("База знаний (BRAIN)", #selector(openBrain), key: "k")
+        add("Замолчать", #selector(hush), key: ".")
         m.addItem(.separator())
         add(hudUp && apiUp ? "Остановить сервисы" : "Запустить сервисы", #selector(toggleServices))
         add("Утренний брифинг сейчас", #selector(brief))
@@ -168,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openBrain() { NSWorkspace.shared.open(URL(string: hudURL + "/#brain")!) }
     @objc func openVoice() { openInTerminal("jarvis") }
     @objc func brief() { openInTerminal("jarvis brief") }
+    @objc func hush() { run(jarvisBin, ["hush"]) }
     @objc func selftest() { openInTerminal("jarvis selftest") }
     @objc func logs() { openInTerminal("jarvis logs") }
     @objc func openConfig() { NSWorkspace.shared.open(URL(fileURLWithPath: hermesHome + "/config.yaml")) }

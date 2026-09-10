@@ -178,6 +178,8 @@
   .tools button{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--text-3)}
   .tools button:hover{color:var(--text);background:var(--tile)}
   .tools button.active{color:var(--cyan)}
+  #stopBtn{display:none}
+  body.speaking #stopBtn,body.busy #stopBtn{display:grid;color:var(--red)}
   .tools svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
   /* ── тосты ── */
@@ -243,6 +245,7 @@
       <input id="input" placeholder="Спросите JARVIS…" autocomplete="off" spellcheck="false">
       <canvas id="wave" width="680" height="80"></canvas>
       <span class="tools">
+        <button id="stopBtn" title="Замолчать (Esc)"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
         <button id="ttsBtn" title="Озвучивать ответы (T)"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></button>
         <button id="helpBtn" title="Клавиши (?)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/></svg></button>
       </span>
@@ -300,7 +303,7 @@
   addEventListener('resize', resize); resize();
   const STATE_TX = {idle:'', listening:'Слушаю…', thinking:'Думаю…', speaking:'Говорю'};
   function setState(s, label){
-    state = s; orb.className = s;
+    state = s; orb.className = s; document.body.classList.toggle('speaking', s==='speaking'); document.body.classList.toggle('busy', s==='thinking');
     targetEnergy = {idle:.2, listening:.55, thinking:.8, speaking:.6}[s];
     targetHue = s==='thinking' ? 1 : 0;
     orbState.textContent = label || STATE_TX[s]; orbState.classList.toggle('show', s!=='idle');
@@ -485,7 +488,7 @@
 
   // ───────────────────────── события от сервера (SSE) ─────────────────────────
   const transcript = $('#transcript'), reply = $('#reply');
-  let streamBuf = '', es;
+  let streamBuf = '', es, lastReply = '';
   function connect(){
     es = new EventSource('/events');
     const on = (n, f) => es.addEventListener(n, e => { let d={}; try { d = JSON.parse(e.data).data || {}; } catch {} f(d); });
@@ -493,17 +496,22 @@
     es.onerror = () => { setStatus(false); es.close(); setTimeout(connect, 3000); };
     on('turn.start', d => {
       if (d.source === 'cron') { log('', `фон · ${esc(d.text||'задача')}`); return; }
+      if (d.source === 'hud' || chatting) return;                   // наш собственный чат
       setState('thinking'); streamBuf=''; reply.textContent=''; reply.classList.remove('err');
       if (d.text && d.source!=='hud') transcript.textContent = d.text;
     });
-    on('stream.delta', d => { if (state==='thinking') setState('speaking'); streamBuf += d.delta||''; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; });
+    on('stream.delta', d => { if (chatting) return; if (state==='thinking') setState('speaking'); streamBuf += d.delta||''; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; });
     on('stream.end', () => {});
     on('turn.end', d => {
       setState('idle');
+      if (d.source === 'hud') { lastReply = d.text||''; return; }   // свой чат уже отрисован через fetch-стрим
       if (d.source === 'cron') { if (d.text) { log('ok', `фон · ${esc(d.text.slice(0,90))}`); card('panel-cron', {title:'Фоновая задача', dock:'right', icon:ICON.bell, html: mdLite(d.text), ttl: 900}); } return; }
-      const txt = d.text||streamBuf; if (!streamBuf && d.text) reply.innerHTML = mdLite(d.text);
-      log('ok', `ответ · ${esc(txt.slice(0,90))}`); if (d.source!=='hud') speak(txt);
+      const txt = d.text||streamBuf;
+      if (txt && txt === lastReply) return;                          // тот же ответ пришёл вторым путём — не дублируем
+      lastReply = txt; if (!streamBuf && d.text) reply.innerHTML = mdLite(d.text);
+      log('ok', `ответ · ${esc(txt.slice(0,90))}`); speak(txt);
     });
+    on('speech.stop', () => { speechSynthesis.cancel(); if (state==='speaking') setState('idle'); });
     on('tool.start', d => { setState('thinking', {mac_calendar:'Смотрю календарь…', brain_recall:'Вспоминаю…', web_search:'Ищу в интернете…', terminal:'Выполняю команду…'}[d.tool] || `${d.tool}…`); log('tool', `${esc(d.tool)}<small>${esc(d.args||'')}</small>`); });
     on('tool.end', d => log(d.ok?'':'err', `${d.ok?'✓':'✗'} ${esc(d.tool)}`));
     on('session.start', d => { if (!(d.session||'').startsWith('cron')) log('', `сессия · ${esc(d.platform||'')}`); });
@@ -524,22 +532,28 @@
   connect();
 
   // ───────────────────────── чат ─────────────────────────
-  const input = $('#input'), mainBtn = $('#mainBtn');
+  const input = $('#input'), mainBtn = $('#mainBtn'); let chatting = false, chatAbort = null;
   input.addEventListener('input', () => mainBtn.classList.toggle('send', !!input.value.trim()));
   async function send(text){
     text = (text ?? input.value).trim(); if (!text) return;
+    stopAll();
     input.value=''; mainBtn.classList.remove('send'); transcript.textContent = text; reply.textContent=''; reply.classList.remove('err'); streamBuf=''; setState('thinking'); log('', `вы · ${esc(text)}`);
+    chatting = true; chatAbort = new AbortController();
     try {
-      const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages:[{role:'user', content:text}]})});
+      const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages:[{role:'user', content:text}]}), signal: chatAbort.signal});
       if (!r.ok) { const j = await r.json().catch(()=>({error:r.statusText})); reply.textContent = j.error || 'Ошибка'; reply.classList.add('err'); setState('idle'); return; }
       const rd = r.body.getReader(), dec = new TextDecoder(); let buf='';
       while (true) { const {value, done} = await rd.read(); if (done) break; buf += dec.decode(value, {stream:true});
         let i; while ((i = buf.indexOf('\n\n')) >= 0) { const chunk = buf.slice(0,i); buf = buf.slice(i+2);
           for (const line of chunk.split('\n')) { if (!line.startsWith('data:')) continue; const data = line.slice(5).trim(); if (data === '[DONE]') continue;
             try { const j = JSON.parse(data); const d = j.choices?.[0]?.delta?.content || ''; if (d) { if (state!=='speaking') setState('speaking'); streamBuf += d; reply.innerHTML = mdLite(streamBuf); reply.scrollTop = reply.scrollHeight; } } catch {} } } }
-      setState('idle'); if (streamBuf) speak(streamBuf);
-    } catch (e) { reply.textContent = 'Нет связи: ' + e; reply.classList.add('err'); setState('idle'); }
+      setState('idle'); lastReply = streamBuf; if (streamBuf) speak(streamBuf);
+    } catch (e) { if (e.name !== 'AbortError') { reply.textContent = 'Нет связи: ' + e; reply.classList.add('err'); } setState('idle'); }
+    finally { chatting = false; chatAbort = null; }
   }
+  // Полная остановка: озвучка браузера, системный say/afplay (через сервер), текущий запрос.
+  function stopAll(){ speechSynthesis.cancel(); if (chatAbort) chatAbort.abort(); fetch('/api/hush', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).catch(()=>{}); setState('idle'); }
+  $('#stopBtn').onclick = stopAll;
   input.addEventListener('keydown', e => { if (e.key==='Enter') { e.preventDefault(); send(); } });
   mainBtn.onclick = () => { if (input.value.trim()) send(); else toggleListen(); };
 
@@ -563,16 +577,17 @@
 
   let ttsOn = localStorage.getItem('jarvis.tts')==='1'; $('#ttsBtn').classList.toggle('active', ttsOn);
   $('#ttsBtn').onclick = () => { ttsOn = !ttsOn; localStorage.setItem('jarvis.tts', ttsOn?'1':'0'); $('#ttsBtn').classList.toggle('active', ttsOn); if (!ttsOn) speechSynthesis.cancel(); };
+  let lastSpoken = '';
   function speak(text){
-    if (!ttsOn || !('speechSynthesis' in window) || !text) return;
-    speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/[*_`#]/g,'').slice(0,1200)); u.lang='ru-RU'; u.rate=1.02;
+    if (!ttsOn || !('speechSynthesis' in window) || !text || text === lastSpoken) return;
+    lastSpoken = text; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/[*_`#]/g,'').slice(0,1200)); u.lang='ru-RU'; u.rate=1.02;
     const v = speechSynthesis.getVoices().find(v=>/ru/i.test(v.lang) && /Milena|Yuri|Google/i.test(v.name)) || speechSynthesis.getVoices().find(v=>/ru/i.test(v.lang)); if (v) u.voice=v;
     u.onstart = () => setState('speaking'); u.onend = () => setState('idle'); speechSynthesis.speak(u);
   }
 
   // ───────────────────────── клавиши ─────────────────────────
   function showHelp(){
-    card('help', {title:'Клавиши', html: `<div class="kv"><span>Пробел (удерживать) / клик по сфере</span><b>говорить</b></div><div class="kv"><span>Enter</span><b>отправить</b></div><div class="kv"><span>K</span><b>база знаний</b></div><div class="kv"><span>A</span><b>лента активности</b></div><div class="kv"><span>T</span><b>озвучивать ответы</b></div><div class="kv"><span>H</span><b>скрыть/показать панели</b></div><div class="kv"><span>Esc</span><b>очистить</b></div><div class="kv"><span>/</span><b>в строку ввода</b></div>`});
+    card('help', {title:'Клавиши', html: `<div class="kv"><span>Пробел (удерживать) / клик по сфере</span><b>говорить</b></div><div class="kv"><span>Enter</span><b>отправить</b></div><div class="kv"><span>K</span><b>база знаний</b></div><div class="kv"><span>A</span><b>лента активности</b></div><div class="kv"><span>T</span><b>озвучивать ответы</b></div><div class="kv"><span>H</span><b>скрыть/показать панели</b></div><div class="kv"><span>Esc</span><b>замолчать / очистить</b></div><div class="kv"><span>/</span><b>в строку ввода</b></div>`});
   }
   $('#helpBtn').onclick = showHelp;
   addEventListener('keydown', e => {
@@ -580,7 +595,7 @@
     if (e.code==='Space' && !typing) { e.preventDefault(); if (!holding) { holding=true; startListen(); } return; }
     if (typing) { if (e.key==='Escape') document.activeElement.blur(); return; }
     const k = e.key.toLowerCase();
-    if (k==='escape') { closeCenter(); transcript.textContent=''; reply.textContent=''; speechSynthesis.cancel(); setState('idle'); }
+    if (k==='escape') { if (state==='speaking' || state==='thinking') { stopAll(); return; } closeCenter(); transcript.textContent=''; reply.textContent=''; }
     else if (k==='k' || k==='л') cards.has('brain') ? closeCard('brain') : showBrain('');
     else if (k==='a' || k==='ф') toggleActivity();
     else if (k==='t' || k==='е') $('#ttsBtn').click();

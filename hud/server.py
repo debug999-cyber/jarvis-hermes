@@ -25,6 +25,7 @@ import mimetypes
 import os
 import queue
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -205,6 +206,27 @@ class EventBus:
 
 BUS = EventBus()
 
+# Сколько чатов сейчас идёт через прокси /api/chat. Пока > 0, события хода от плагина
+# (turn.start/stream.delta/turn.end) отбрасываются — прокси уже рассылает их сам, иначе текст
+# в HUD появлялся два-три раза, а озвучка запускалась дважды.
+_PROXY_TURNS = 0
+_PROXY_LOCK = threading.Lock()
+_TURN_EVENTS = {"turn.start", "stream.delta", "stream.end", "turn.end"}
+
+
+def hush(reason: str = "user") -> dict:
+    """Заглушить всё, что сейчас говорит: системный `say`, afplay, озвучку в браузерах."""
+    killed = []
+    if sys.platform == "darwin":
+        for proc in ("say", "afplay"):
+            try:
+                if subprocess.run(["pkill", "-x", proc], capture_output=True, timeout=3).returncode == 0:
+                    killed.append(proc)
+            except (OSError, subprocess.SubprocessError):
+                pass
+    BUS.publish({"event": "speech.stop", "data": {"reason": reason}})
+    return {"ok": True, "killed": killed}
+
 
 # ═════════════════════════════ HTTP-обработчик ════════════════════════════
 
@@ -303,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
             ev = self._read_json()
             if not ev.get("event"):
                 return self._json(400, {"error": "event required"})
+            if ev["event"] in _TURN_EVENTS and _PROXY_TURNS > 0 and (ev.get("data") or {}).get("source") != "cron":
+                return self._json(200, {"ok": True, "dropped": "proxy turn in flight"})
             BUS.publish(ev)
             if ev["event"] == "timer.fire":
                 BUS.publish({"event": "timer.update", "data": {"timers": sysinfo.timers()}})
@@ -311,6 +335,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._chat(self._read_json())
         if u.path == "/api/timer":
             return self._timer(self._read_json())
+        if u.path == "/api/hush":
+            return self._json(200, hush())
         if u.path == "/api/mode":
             body = self._read_json()
             mode = body.get("mode") if body.get("mode") in ("normal", "focus", "night", "presentation") else "normal"
@@ -412,6 +438,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
+        global _PROXY_TURNS
+        with _PROXY_LOCK:
+            _PROXY_TURNS += 1
         BUS.publish({"event": "turn.start", "data": {"text": messages[-1].get("content", "")[:300], "source": "hud"}})
         full = []
         try:
@@ -443,6 +472,8 @@ class Handler(BaseHTTPRequestHandler):
             pass
         finally:
             BUS.publish({"event": "turn.end", "data": {"text": "".join(full)[:2000], "source": "hud"}})
+            with _PROXY_LOCK:
+                _PROXY_TURNS = max(0, _PROXY_TURNS - 1)
 
 
 # ═════════════════════════════ точка входа ════════════════════════════════

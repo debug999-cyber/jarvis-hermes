@@ -35,6 +35,7 @@ J.A.R.V.I.S. on Hermes Agent
   jarvis ask "вопрос"    один вопрос — один ответ (без интерактива)
   jarvis hud             запустить HUD и открыть в браузере
   jarvis hud stop|log    остановить HUD / показать лог
+  jarvis hush            немедленно заглушить речь (say/afplay/озвучка HUD)
   jarvis gateway         запустить gateway (Telegram/Discord/API) в фоне
   jarvis gateway stop    остановить gateway
   jarvis up              всё сразу: gateway + HUD + голосовой TUI
@@ -61,6 +62,10 @@ case "$cmd" in
     say "JARVIS online. Скажите «Hey Jarvis» или нажмите Ctrl+B. /voice, /wake, /brief, /focus, /timer, /screen"
     exec hermes --tui "$@" ;;
   chat)      exec hermes chat "$@" ;;
+  hush|stop)
+    pkill -x say 2>/dev/null; pkill -x afplay 2>/dev/null
+    curl -s -X POST -H 'Content-Type: application/json' -d '{}' "http://127.0.0.1:$HUD_PORT/api/hush" >/dev/null 2>&1 || true
+    say "тихо" ;;
   ask)       exec hermes chat -q "$*" ;;
   hud)
     case "${1:-start}" in

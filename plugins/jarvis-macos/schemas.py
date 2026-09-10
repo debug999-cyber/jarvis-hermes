@@ -200,10 +200,14 @@ MAC_MEDIA = {
 
 MAC_SAY = {
     "name": "mac_say",
-    "description": "Произнести текст встроенным системным голосом macOS (`say`). Используй только если пользователь просит именно системный голос — обычно TTS уже делает Hermes.",
+    "description": (
+        "Произнести текст системным голосом macOS (`say`) или ОСТАНОВИТЬ речь. НЕ используй для обычных ответов — "
+        "их уже озвучивает TTS Hermes, и получится дубль. action=stop — «замолчи», «стоп», «хватит»: глушит say/afplay и озвучку HUD."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
+            "action": {"type": "string", "enum": ["say", "stop"], "default": "say"},
             "text": {"type": "string"},
             "voice": {"type": "string", "description": "Имя голоса (Milena, Yuri, Samantha, Daniel…). По умолчанию — системный."},
             "rate": {"type": "integer", "description": "Слов в минуту (например 180)"},

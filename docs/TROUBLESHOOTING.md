@@ -82,6 +82,8 @@ jarvis hud log           # лог HUD
 
 | Симптом | Решение |
 |---|---|
+| JARVIS повторяет одно и то же / говорит дважды | Ответ шёл на HUD двумя путями (плагин + прокси чата) и модель вызывала `mac_say` поверх TTS Hermes. С 1.6.1 дубли режутся на сервере, `mac_say` только по явной просьбе. Если повторы остались — это модель: `hermes model` → выберите другую |
+| Не остановить речь | `jarvis hush` (или `Esc` в HUD, «Замолчать» в меню ◉, голосом «стоп»). Hermes TTS: барж-ин — просто начните говорить; `voice.stop_phrases` в config.yaml |
 | «No API key» | `hermes model` или `hermes config set OPENROUTER_API_KEY …` |
 | Модель не вызывает инструменты (только болтает) | Возьмите модель с хорошим tool-calling: Claude Sonnet, GPT-4.1, Gemini 2.5, Qwen3 ≥ 14b. Для Ollama проверьте, что модель поддерживает tools |
 | Медленный первый ответ | Короче SOUL.md; меньше toolsets в `config.yaml`; провайдер с prompt caching (Anthropic) |
