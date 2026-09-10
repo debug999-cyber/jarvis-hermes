@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════════════
+#  jarvis — единая точка входа J.A.R.V.I.S. (обёртка над hermes + HUD)
+#  Установщик подставляет __HERMES_HOME__ и __PYTHON__.
+# ═══════════════════════════════════════════════════════════════════════════
+set -euo pipefail
+HERMES_HOME="${HERMES_HOME:-__HERMES_HOME__}"
+PY="__PYTHON__"; [[ -x "$PY" ]] || PY="$(command -v python3)"
+JARVIS_HOME="$HERMES_HOME/jarvis"
+HUD_PORT="${JARVIS_HUD_PORT:-8765}"
+HUD_PID="$HERMES_HOME/jarvis/hud.pid"
+HUD_LOG="$HERMES_HOME/logs/jarvis-hud.log"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+CB='\033[1;36m'; CG='\033[1;32m'; CR='\033[1;31m'; CY='\033[1;33m'; C0='\033[0m'
+say(){ printf "${CB}◆${C0} %s\n" "$*"; }
+
+hud_running(){ [[ -f "$HUD_PID" ]] && kill -0 "$(cat "$HUD_PID")" 2>/dev/null; }
+hud_start(){
+  if hud_running; then say "HUD уже запущен (pid $(cat "$HUD_PID"))"; return; fi
+  mkdir -p "$(dirname "$HUD_LOG")"
+  nohup "$PY" "$JARVIS_HOME/hud/server.py" --port "$HUD_PORT" >>"$HUD_LOG" 2>&1 &
+  echo $! > "$HUD_PID"; sleep 0.7
+  hud_running && say "HUD → http://127.0.0.1:$HUD_PORT" || { printf "${CR}HUD не стартовал, см. %s${C0}\n" "$HUD_LOG"; exit 1; }
+}
+hud_stop(){ hud_running && { kill "$(cat "$HUD_PID")"; rm -f "$HUD_PID"; say "HUD остановлен"; } || say "HUD не запущен"; }
+
+gateway_running(){ hermes gateway status 2>/dev/null | grep -qi -E "running|запущен|active"; }
+
+usage(){ cat <<EOF
+J.A.R.V.I.S. on Hermes Agent
+
+  jarvis                 голосовой чат в терминале (wake word + Ctrl+B), TUI
+  jarvis chat [args]     классический CLI Hermes с профилем JARVIS
+  jarvis ask "вопрос"    один вопрос — один ответ (без интерактива)
+  jarvis hud             запустить HUD и открыть в браузере
+  jarvis hud stop|log    остановить HUD / показать лог
+  jarvis gateway         запустить gateway (Telegram/Discord/API) в фоне
+  jarvis gateway stop    остановить gateway
+  jarvis up              всё сразу: gateway + HUD + голосовой TUI
+  jarvis status          состояние компонентов
+  jarvis brain [stats|review|export|diary|profile|log|backup|restore|sql]   база знаний
+  jarvis brain import    первичный импорт: контакты, календарь, заметки → карточки в базе
+  jarvis brief           утренний брифинг прямо сейчас
+  jarvis selftest [--fix] проверить все mac_* инструменты и права на ЭТОМ Mac (без LLM)
+  jarvis heartbeat       одна проверка «нужно ли что-то сказать?» (для cron/Shortcuts)
+  jarvis doctor          диагностика Hermes + проверка плагинов JARVIS
+  jarvis update          обновить Hermes и переустановить плагины JARVIS
+  jarvis perms           открыть нужные панели разрешений macOS
+  jarvis config          открыть ~/.hermes/config.yaml в редакторе
+  jarvis logs            хвост логов агента и HUD
+EOF
+}
+
+cmd="${1:-}"; [[ $# -gt 0 ]] && shift || true
+case "$cmd" in
+  ""|voice|tui)
+    say "JARVIS online. Скажите «Hey Jarvis» или нажмите Ctrl+B. /voice, /wake, /brief, /focus, /timer, /screen"
+    exec hermes --tui "$@" ;;
+  chat)      exec hermes chat "$@" ;;
+  ask)       exec hermes chat -q "$*" ;;
+  hud)
+    case "${1:-start}" in
+      start) hud_start; open "http://127.0.0.1:$HUD_PORT" 2>/dev/null || true ;;
+      stop)  hud_stop ;;
+      log|logs) tail -n 60 -f "$HUD_LOG" ;;
+      restart) hud_stop; hud_start ;;
+      *) usage ;;
+    esac ;;
+  gateway)
+    case "${1:-start}" in
+      start) hermes gateway start "$@" 2>/dev/null || hermes gateway ;;
+      stop)  hermes gateway stop ;;
+      *)     hermes gateway "$@" ;;
+    esac ;;
+  up)
+    hermes gateway start >/dev/null 2>&1 || true; say "gateway запущен (API :8642)"
+    hud_start; open "http://127.0.0.1:$HUD_PORT" 2>/dev/null || true
+    exec hermes --tui ;;
+  status)
+    printf "${CB}J.A.R.V.I.S. status${C0}\n"
+    printf "  hermes      : %s\n" "$(hermes --version 2>/dev/null | head -1 || echo 'not found')"
+    printf "  model       : %s\n" "$(hermes config get model 2>/dev/null || echo '—')"
+    printf "  gateway     : %s\n" "$(gateway_running && echo running || echo stopped)"
+    printf "  api :8642   : %s\n" "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8642/health 2>/dev/null || echo down)"
+    printf "  hud  :%s  : %s\n" "$HUD_PORT" "$(hud_running && echo running || echo stopped)"
+    printf "  plugins     : %s\n" "$(hermes plugins list 2>/dev/null | grep -i -c jarvis || echo 0)/2 jarvis-*"
+    printf "  wake word   : %s\n" "$(hermes config get wake_word.enabled 2>/dev/null || echo '—')"
+    printf "  stt/tts     : %s / %s\n" "$(hermes config get stt.provider 2>/dev/null || echo '—')" "$(hermes config get tts.provider 2>/dev/null || echo '—')"
+    printf "  launchd     : %s\n" "$(launchctl list 2>/dev/null | grep -c ai.jarvis || echo 0) agents" ;;
+  brief)     exec hermes chat -s jarvis/briefing -q "Сделай брифинг по навыку morning-briefing прямо сейчас." ;;
+  selftest)  exec "$PY" "$JARVIS_HOME/selftest.py" "$@" ;;
+  heartbeat) exec hermes chat -s jarvis/heartbeat -q "Heartbeat. Проверь HEARTBEAT.md и ответь NO_REPLY, если ничего не требует внимания." ;;
+  brain)
+    # jarvis brain [stats|export|review|log|backup|path]
+    sub="${1:-stats}"; shift || true
+    BRAIN_DB="$HERMES_HOME/plugin-data/jarvis-brain/brain.db"
+    case "$sub" in
+      review) exec hermes chat -s brain-nightly-review -q "Проведи ревизию базы знаний по навыку brain-nightly-review прямо сейчас и дай отчёт." ;;
+      export) exec hermes chat -q "Вызови brain_review export и ответь только путём к файлу." ;;
+      path)   echo "$BRAIN_DB" ;;
+      backup) cp "$BRAIN_DB" "$BRAIN_DB.manual-$(date +%Y%m%d-%H%M%S)" && echo "ok: $BRAIN_DB.manual-*" ;;
+      sql)    exec sqlite3 "$BRAIN_DB" "$@" ;;
+      log)    sqlite3 -header -column "$BRAIN_DB" "SELECT ts, actor, op, table_name, row_id FROM changelog ORDER BY id DESC LIMIT ${1:-20}" ;;
+      diary)  sqlite3 -column "$BRAIN_DB" "SELECT day, summary FROM episodes ORDER BY day DESC LIMIT ${1:-7}" ;;
+      profile) [[ -f "$HERMES_HOME/jarvis/PROFILE.md" ]] && cat "$HERMES_HOME/jarvis/PROFILE.md" || echo "Профиль ещё не выгружен — jarvis brain export" ;;
+      restore)
+        ls -1t "$HERMES_HOME/plugin-data/jarvis-brain/"brain.bak-*.db 2>/dev/null | head -5 || { echo "бэкапов нет"; exit 1; }
+        src="${1:-$(ls -1t "$HERMES_HOME/plugin-data/jarvis-brain/"brain.bak-*.db | head -1)}"
+        read -r -p "Откатить базу из $src ? [y/N] " a; [[ "$a" == [yY] ]] || exit 0
+        cp "$BRAIN_DB" "$BRAIN_DB.pre-restore-$(date +%Y%m%d-%H%M%S)"; cp "$src" "$BRAIN_DB"; rm -f "$BRAIN_DB-wal" "$BRAIN_DB-shm"; echo "ok" ;;
+      import)  exec hermes chat -s jarvis/brain-import -q "Выполни первичный импорт знаний по навыку brain-import. Спрашивай подтверждение перед записью." ;;
+      *)      [[ -f "$BRAIN_DB" ]] || { echo "База ещё не создана (появится после первого запуска jarvis)"; exit 0; }
+              sqlite3 "$BRAIN_DB" "SELECT 'notes: '||COUNT(*) FROM notes WHERE status='active'; SELECT 'entities: '||COUNT(*) FROM entities WHERE status='active'; SELECT 'episodes: '||COUNT(*) FROM episodes; SELECT 'pending turns: '||COUNT(*) FROM turns WHERE digested=0; SELECT 'last review: '||COALESCE(MAX(finished_at),'—') FROM reviews;"
+              echo "file: $BRAIN_DB ($(du -k "$BRAIN_DB" | cut -f1) KB)  ·  markdown: $HERMES_HOME/jarvis/BRAIN.md" ;;
+    esac ;;
+  doctor)
+    hermes doctor || true
+    echo; say "Плагины JARVIS:"; hermes plugins list 2>/dev/null | grep -i jarvis || printf "${CR}  не найдены — hermes plugins enable jarvis-core jarvis-macos jarvis-brain${C0}\n"
+    for p in jarvis-core jarvis-macos jarvis-brain; do
+      hermes plugins doctor "$HERMES_HOME/plugins/$p" 2>/dev/null | tail -n 5 || true
+    done ;;
+  update)
+    hermes update || true
+    SRC="${JARVIS_SRC:-}"; [[ -z "$SRC" && -f "$JARVIS_HOME/../jarvis-src-path" ]] && SRC="$(cat "$JARVIS_HOME/../jarvis-src-path")"
+    if [[ -n "$SRC" && -f "$SRC/install.sh" ]]; then bash "$SRC/install.sh" --yes --no-launchd --no-brew-tools; else
+      say "Чтобы переустановить плагины, запустите install.sh из папки проекта."; fi ;;
+  perms)
+    open "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+    sleep 1; open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+    sleep 1; open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+    sleep 1; open "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation" ;;
+  config)    exec hermes config edit ;;
+  logs)      tail -n 40 "$HERMES_HOME/logs/agent.log" "$HUD_LOG" 2>/dev/null; hermes logs --follow 2>/dev/null || true ;;
+  -h|--help|help) usage ;;
+  *)         exec hermes "$cmd" "$@" ;;   # всё остальное — прозрачно в hermes
+esac

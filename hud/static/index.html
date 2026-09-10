@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>J.A.R.V.I.S. — HUD</title>
+<style>
+  :root{
+    --bg:#020509; --cyan:#37e6ff; --cyan-dim:rgba(55,230,255,.25); --cyan-glow:rgba(55,230,255,.55);
+    --amber:#ffb347; --red:#ff5f6d; --green:#59f3a6; --text:#cfefff; --muted:#5f8ea3; --panel:rgba(4,18,28,.72);
+    --mono:"SF Mono",Menlo,Consolas,monospace; --sans:-apple-system,"SF Pro Display",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden}
+  body::before{content:"";position:fixed;inset:0;background:
+    radial-gradient(ellipse at 50% 45%,rgba(55,230,255,.10),transparent 55%),
+    repeating-linear-gradient(0deg,transparent 0 2px,rgba(55,230,255,.025) 2px 3px);pointer-events:none}
+  #grid{position:fixed;inset:0;background-image:linear-gradient(rgba(55,230,255,.05) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(55,230,255,.05) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;
+    mask-image:radial-gradient(circle at 50% 50%,#000 20%,transparent 75%)}
+
+  /* ───── layout ───── */
+  #app{position:relative;height:100%;display:grid;grid-template-columns:320px 1fr 320px;grid-template-rows:56px 1fr 96px;gap:14px;padding:14px}
+  header{grid-column:1/4;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border:1px solid var(--cyan-dim);
+    background:var(--panel);backdrop-filter:blur(10px);clip-path:polygon(0 0,calc(100% - 22px) 0,100% 22px,100% 100%,22px 100%,0 calc(100% - 22px))}
+  .brand{font-weight:700;letter-spacing:.35em;color:var(--cyan);text-shadow:0 0 14px var(--cyan-glow);font-size:15px}
+  .brand small{display:block;letter-spacing:.15em;color:var(--muted);font-size:10px;font-weight:400;margin-top:2px}
+  .status{display:flex;gap:18px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .status b{color:var(--text);font-weight:500}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red);margin-right:6px;box-shadow:0 0 8px currentColor}
+  .dot.on{background:var(--green);color:var(--green)}
+  .dot.busy{background:var(--amber);color:var(--amber);animation:pulse 1s infinite}
+  aside,main{border:1px solid var(--cyan-dim);background:var(--panel);backdrop-filter:blur(10px);position:relative;overflow:hidden}
+  aside{clip-path:polygon(0 0,100% 0,100% calc(100% - 22px),calc(100% - 22px) 100%,0 100%)}
+  aside.right{clip-path:polygon(22px 0,100% 0,100% 100%,0 100%,0 22px)}
+  aside h3{font-size:10px;letter-spacing:.3em;color:var(--cyan);padding:12px 14px;border-bottom:1px solid var(--cyan-dim);font-weight:600}
+  .scroll{overflow-y:auto;height:calc(100% - 38px);padding:10px 12px;scrollbar-width:thin;scrollbar-color:var(--cyan-dim) transparent}
+
+  /* ───── activity feed ───── */
+  .ev{font-family:var(--mono);font-size:11px;padding:6px 8px;margin-bottom:6px;border-left:2px solid var(--cyan-dim);background:rgba(55,230,255,.04);animation:in .25s ease}
+  .ev .t{color:var(--muted);margin-right:8px}
+  .ev.tool{border-color:var(--amber)} .ev.ok{border-color:var(--green)} .ev.err{border-color:var(--red)}
+  .ev .name{color:var(--amber)} .ev.ok .name{color:var(--green)} .ev.err .name{color:var(--red)}
+  .ev .args{color:var(--muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+
+  /* ───── reactor ───── */
+  main{display:flex;flex-direction:column;align-items:center;justify-content:center;clip-path:polygon(22px 0,calc(100% - 22px) 0,100% 22px,100% calc(100% - 22px),calc(100% - 22px) 100%,22px 100%,0 calc(100% - 22px),0 22px)}
+  #reactor{width:min(46vh,380px);height:min(46vh,380px);position:relative;cursor:pointer;transition:transform .3s}
+  #reactor:hover{transform:scale(1.02)}
+  #reactor svg{width:100%;height:100%;overflow:visible}
+  .ring{fill:none;stroke:var(--cyan);stroke-opacity:.55;transform-origin:50% 50%}
+  .r1{animation:spin 18s linear infinite} .r2{animation:spin 11s linear infinite reverse} .r3{animation:spin 26s linear infinite}
+  .core{fill:url(#coreGrad);filter:drop-shadow(0 0 22px var(--cyan-glow))}
+  .tick{stroke:var(--cyan);stroke-opacity:.5}
+  #reactor.listening .core{animation:breathe .9s ease-in-out infinite}
+  #reactor.listening .ring{stroke:var(--green)}
+  #reactor.thinking .r1{animation-duration:3s} #reactor.thinking .r2{animation-duration:2s} #reactor.thinking .ring{stroke:var(--amber)}
+  #reactor.speaking .core{animation:breathe .35s ease-in-out infinite}
+  #state{margin-top:18px;font-family:var(--mono);font-size:12px;letter-spacing:.35em;color:var(--cyan);text-transform:uppercase;text-shadow:0 0 10px var(--cyan-glow)}
+  #transcript{margin-top:14px;max-width:70%;text-align:center;font-size:15px;line-height:1.5;min-height:48px;color:var(--text)}
+  #transcript .u{color:var(--muted);font-size:13px;display:block;margin-bottom:6px}
+  #reply{margin-top:10px;max-width:72%;max-height:26vh;overflow-y:auto;text-align:left;font-size:14px;line-height:1.55;color:#e6f7ff;white-space:pre-wrap;scrollbar-width:thin}
+
+  /* ───── panels (holograms) ───── */
+  #panels{position:fixed;inset:70px 340px 110px 340px;pointer-events:none;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;z-index:5}
+  .panel{pointer-events:auto;border:1px solid var(--cyan);background:rgba(2,10,16,.92);box-shadow:0 0 30px var(--cyan-dim),inset 0 0 40px rgba(55,230,255,.06);
+    animation:materialize .6s cubic-bezier(.2,.8,.2,1);overflow:hidden;display:flex;flex-direction:column;max-height:100%;align-self:center}
+  .panel.center{grid-column:1/4;justify-self:center;width:min(100%,900px)}
+  .panel.left{grid-column:1/2} .panel.right{grid-column:3/4}
+  .panel .ph{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--cyan-dim);font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--cyan)}
+  .panel .ph button{background:none;border:1px solid var(--cyan-dim);color:var(--cyan);cursor:pointer;font-size:11px;padding:2px 8px}
+  .panel .pb{padding:12px;overflow:auto;font-size:14px;line-height:1.5}
+  .panel img,.panel video,.panel iframe{max-width:100%;max-height:60vh;display:block;margin:auto;border:0}
+  .panel iframe{width:100%;height:60vh}
+  .panel pre{font-family:var(--mono);font-size:12px;white-space:pre-wrap}
+  .chart{display:flex;align-items:flex-end;gap:6px;height:220px;padding:10px}
+  .chart .bar{flex:1;background:linear-gradient(180deg,var(--cyan),rgba(55,230,255,.2));position:relative;min-width:8px}
+  .chart .bar span{position:absolute;bottom:-18px;left:0;right:0;text-align:center;font-size:10px;color:var(--muted);font-family:var(--mono)}
+  .chart .bar b{position:absolute;top:-16px;left:0;right:0;text-align:center;font-size:10px;color:var(--cyan)}
+
+  /* ───── composer ───── */
+  footer{grid-column:1/4;display:flex;gap:10px;align-items:center;border:1px solid var(--cyan-dim);background:var(--panel);padding:0 14px;
+    clip-path:polygon(22px 0,100% 0,100% calc(100% - 22px),calc(100% - 22px) 100%,0 100%,0 22px)}
+  footer input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font-size:16px;font-family:var(--sans);padding:14px 4px}
+  footer input::placeholder{color:var(--muted)}
+  .btn{background:transparent;border:1px solid var(--cyan-dim);color:var(--cyan);font-family:var(--mono);font-size:11px;letter-spacing:.15em;padding:10px 14px;cursor:pointer;transition:.2s}
+  .btn:hover{background:var(--cyan-dim)} .btn.active{background:var(--cyan);color:#021018;box-shadow:0 0 16px var(--cyan-glow)}
+  .btn.danger{border-color:var(--red);color:var(--red)}
+  kbd{font-family:var(--mono);font-size:10px;color:var(--muted);border:1px solid var(--cyan-dim);padding:1px 5px;margin-left:6px}
+
+  /* ───── right column: system ───── */
+  .kv{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;padding:6px 0;border-bottom:1px dashed rgba(55,230,255,.12)}
+  .kv span:last-child{color:var(--cyan)}
+  .meter{height:4px;background:rgba(55,230,255,.12);margin:4px 0 10px}
+  .meter i{display:block;height:100%;background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow);transition:width .6s}
+  .timers .kv span:last-child{color:var(--amber)}
+
+  #boot{position:fixed;inset:0;background:var(--bg);z-index:50;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;font-family:var(--mono);color:var(--cyan);letter-spacing:.3em;transition:opacity .8s}
+  #boot.hide{opacity:0;pointer-events:none}
+  #boot .lines{font-size:11px;letter-spacing:.1em;color:var(--muted);text-align:left;width:360px;height:120px;overflow:hidden}
+
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes breathe{0%,100%{opacity:.75;transform:scale(.97)}50%{opacity:1;transform:scale(1.04)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes in{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+  @keyframes materialize{0%{opacity:0;transform:perspective(900px) translateZ(-300px) rotateX(12deg);filter:brightness(2.5) blur(4px)}60%{filter:brightness(1.4) blur(0)}100%{opacity:1;transform:none;filter:none}}
+  @media (max-width:1000px){#app{grid-template-columns:1fr;grid-template-rows:56px 1fr 96px}aside{display:none}#panels{inset:70px 14px 110px 14px;grid-template-columns:1fr}.panel.left,.panel.right,.panel.center{grid-column:1/2}}
+</style>
+</head>
+<body>
+<div id="grid"></div>
+
+<div id="boot">
+  <div class="brand" style="font-size:22px">J.A.R.V.I.S.</div>
+  <div class="lines" id="bootLines"></div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="brand">J.A.R.V.I.S.<small>JUST A RATHER VERY INTELLIGENT SYSTEM · HERMES CORE</small></div>
+    <div class="status">
+      <span><i class="dot" id="dHud"></i>HUD</span>
+      <span><i class="dot" id="dHermes"></i>HERMES API</span>
+      <span>MODE <b id="mode">NORMAL</b></span>
+      <span id="clock">--:--</span>
+    </div>
+  </header>
+
+  <aside>
+    <h3>ACTIVITY</h3>
+    <div class="scroll" id="feed"></div>
+  </aside>
+
+  <main>
+    <div id="reactor" title="Нажмите или удерживайте пробел — говорить">
+      <svg viewBox="0 0 200 200">
+        <defs>
+          <radialGradient id="coreGrad"><stop offset="0%" stop-color="#eaffff"/><stop offset="45%" stop-color="#37e6ff"/><stop offset="100%" stop-color="rgba(55,230,255,0)"/></radialGradient>
+        </defs>
+        <circle class="ring r1" cx="100" cy="100" r="92" stroke-width="1.2" stroke-dasharray="6 10 40 10"/>
+        <circle class="ring r2" cx="100" cy="100" r="78" stroke-width="3" stroke-dasharray="2 6"/>
+        <circle class="ring r3" cx="100" cy="100" r="64" stroke-width="1" stroke-dasharray="90 20 30 20"/>
+        <g class="ticks" id="ticks"></g>
+        <circle cx="100" cy="100" r="50" fill="none" stroke="var(--cyan)" stroke-opacity=".35" stroke-width="10"/>
+        <circle class="core" cx="100" cy="100" r="34"/>
+      </svg>
+    </div>
+    <div id="state">standby</div>
+    <div id="transcript"></div>
+    <div id="reply"></div>
+  </main>
+
+  <aside class="right">
+    <h3>SYSTEM</h3>
+    <div class="scroll">
+      <div class="kv"><span>SESSION</span><span id="sSession">—</span></div>
+      <div class="kv"><span>MODEL</span><span id="sModel">—</span></div>
+      <div class="kv"><span>TURNS</span><span id="sTurns">0</span></div>
+      <div class="kv"><span>TOOL CALLS</span><span id="sTools">0</span></div>
+      <div class="kv"><span>HUD CLIENTS</span><span id="sClients">—</span></div>
+      <div style="margin-top:14px;font-size:10px;letter-spacing:.3em;color:var(--cyan);cursor:pointer" id="brainBtn" title="Открыть базу знаний (K)">BRAIN ▸</div>
+      <div class="kv"><span>KNOWLEDGE</span><span id="sBrain">—</span></div>
+      <div class="kv"><span>LAST UPDATE</span><span id="sBrainLast">—</span></div>
+      <div style="margin-top:14px;font-size:10px;letter-spacing:.3em;color:var(--cyan)">TIMERS</div>
+      <div class="timers" id="timers"><div class="kv"><span>—</span><span></span></div></div>
+      <div style="margin-top:14px;font-size:10px;letter-spacing:.3em;color:var(--cyan)">HOTKEYS</div>
+      <div class="kv"><span>говорить</span><span>SPACE (hold)</span></div>
+      <div class="kv"><span>база знаний</span><span>K</span></div>
+      <div class="kv"><span>стоп / очистить</span><span>ESC</span></div>
+      <div class="kv"><span>озвучка в браузере</span><span>T</span></div>
+      <div class="kv"><span>перезапуск boot</span><span>B</span></div>
+    </div>
+  </aside>
+
+  <footer>
+    <button class="btn" id="micBtn" title="Голосовой ввод (Web Speech API, Chrome/Safari)">● MIC</button>
+    <input id="input" placeholder="Скажите или напишите команду… («открой Safari», «что у меня сегодня», «покажи на экране видео про арк-реактор»)" autocomplete="off">
+    <button class="btn" id="sendBtn">SEND<kbd>⏎</kbd></button>
+    <button class="btn" id="ttsBtn" title="Озвучивать ответы голосом браузера">TTS</button>
+    <button class="btn danger" id="clearBtn" title="Очистить панели и ответ">CLEAR</button>
+  </footer>
+</div>
+
+<div id="panels"></div>
+
+<script>
+(() => {
+  // ───────────────────────── util ─────────────────────────
+  const $ = s => document.querySelector(s);
+  const feed = $('#feed'), reactor = $('#reactor'), stateEl = $('#state'), transcript = $('#transcript'), reply = $('#reply');
+  const panels = $('#panels');
+  const stats = {turns:0, tools:0};
+  const now = () => new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  // ticks around reactor
+  const ticks = $('#ticks'); let tk='';
+  for (let i=0;i<60;i++){const a=i*6*Math.PI/180, r1=i%5?86:82, r2=88;
+    tk+=`<line class="tick" x1="${100+Math.cos(a)*r1}" y1="${100+Math.sin(a)*r1}" x2="${100+Math.cos(a)*r2}" y2="${100+Math.sin(a)*r2}" stroke-width="${i%5?0.6:1.4}"/>`;}
+  ticks.innerHTML = tk;
+
+  function setState(s, label){ reactor.className = s; stateEl.textContent = label || s; }
+  function log(cls, html){
+    const d = document.createElement('div'); d.className = 'ev ' + cls;
+    d.innerHTML = `<span class="t">${now()}</span>${html}`; feed.prepend(d);
+    while (feed.children.length > 120) feed.lastChild.remove();
+  }
+  setInterval(()=>{$('#clock').textContent=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})},1000);
+
+  // ───────────────────────── boot sequence ─────────────────────────
+  function boot(){
+    const b=$('#boot'), l=$('#bootLines'); b.classList.remove('hide'); l.innerHTML='';
+    const lines=['> HERMES CORE ........ linking','> memory subsystem ... online','> skills registry .... 80+ loaded','> macOS bridge ....... ready','> voice pipeline ..... whisper/edge','> HUD event bus ...... connected','> all systems nominal.'];
+    lines.forEach((t,i)=>setTimeout(()=>{l.innerHTML+=t+'<br>'; if(i===lines.length-1) setTimeout(()=>{b.classList.add('hide'); speak('Системы в норме. Добро пожаловать, сэр.', true);},500)}, 180*i+200));
+  }
+  boot();
+
+  // ───────────────────────── SSE stream from server ─────────────────────────
+  let streamBuf = '';
+  function connect(){
+    const es = new EventSource('/events');
+    es.onopen = () => { $('#dHud').classList.add('on'); log('ok','<span class="name">HUD</span> event stream connected'); };
+    es.onerror = () => { $('#dHud').classList.remove('on'); };
+    const on = (name, fn) => es.addEventListener(name, e => { try { fn(JSON.parse(e.data).data || {}) } catch(err){ console.warn(err) } });
+
+    on('session.start', d => { $('#sSession').textContent = (d.session||'').slice(0,8); $('#sModel').textContent = d.model||'—'; log('', `session <b>${esc((d.session||'').slice(0,8))}</b> · ${esc(d.platform||'')}`); });
+    on('turn.start', d => { stats.turns++; $('#sTurns').textContent = stats.turns; setState('thinking','processing'); streamBuf=''; reply.textContent='';
+      if (d.text && d.source!=='hud') transcript.innerHTML = `<span class="u">ВЫ</span>${esc(d.text)}`; });
+    on('stream.delta', d => { streamBuf += d.delta||''; reply.textContent = streamBuf; reply.scrollTop = reply.scrollHeight; setState('speaking','responding'); });
+    on('stream.end', () => {});
+    on('turn.end', d => { if (!streamBuf && d.text) reply.textContent = d.text; setState('', 'standby'); log('ok', `<span class="name">reply</span> ${esc((d.text||streamBuf).slice(0,90))}`); if (d.source!=='hud') speak(d.text||streamBuf); });
+    on('tool.start', d => { stats.tools++; $('#sTools').textContent = stats.tools; setState('thinking', d.tool||'tool'); log('tool', `<span class="name">▶ ${esc(d.tool)}</span><span class="args">${esc(d.args||'')}</span>`); });
+    on('tool.end', d => log(d.ok===false?'err':'ok', `<span class="name">${d.ok===false?'✖':'✔'} ${esc(d.tool)}</span>`));
+    on('panel.show', showPanel);
+    on('panel.clear', clearPanels);
+    on('mode.set', d => $('#mode').textContent = (d.mode||'normal').toUpperCase());
+    on('timer.fire', d => { log('tool', `<span class="name">⏰ ${esc(d.label)}</span>`); showPanel({kind:'text', title:'TIMER', content:'⏰ ' + d.label, position:'center', ttl:15}); refreshTimers(); });
+    on('hud.online', () => {});
+    on('plugin.ready', d => log('ok', `<span class="name">plugin</span> ${esc(d.name)} ready`));
+    on('alert', d => { log('err', `<span class="name">⚠ ${esc(d.kind||'alert')}</span> ${esc(d.text||'')}`); showPanel({kind:'text', title:'ALERT', content:'⚠ ' + (d.text||''), position:'center', ttl:20}); });
+    async function showBrain(q){
+      try {
+        const r = await fetch('/api/brain' + (q ? '?q=' + encodeURIComponent(q) : '')); const b = await r.json();
+        if (!b.ok) { showPanel({kind:'text', title:'BRAIN', content:'База знаний ещё пуста — скажите «запомни…»', position:'center', ttl:8}); return; }
+        $('#sBrain').textContent = `${b.notes} notes · ${b.entities} cards`;
+        const kinds = b.kinds.map(k=>`<span style="border:1px solid var(--cyan-dim);padding:1px 6px;margin:2px;display:inline-block;font-size:11px">${esc(k.kind)} <b>${k.n}</b></span>`).join('');
+        const ents = b.top_entities.map(e=>`<li><b>${esc(e.name)}</b> <span style="color:var(--muted)">${esc(e.kind)} · ${e.notes}</span></li>`).join('');
+        const recent = (b.search || b.recent).map(n=>`<li><span style="color:var(--muted)">#${n.id} ${esc(n.kind)}${n.entity? ' · '+esc(n.entity):''}</span><br>${esc(n.content)}</li>`).join('');
+        const diary = b.diary.map(d=>`<li><b>${esc(d.day)}</b> ${esc(d.summary)}</li>`).join('');
+        const fails = (b.failures||[]).map(f=>`<li><b>${f.count}×</b> ${esc(f.tool)} <span style="color:var(--muted)">${esc((f.message||'').slice(0,60))}</span></li>`).join('');
+        const hist = (b.history||[]).map(h=>`<li><span style="color:var(--muted)">${esc(h.valid_from||'')} → ${esc(h.valid_until||'')}</span> ${esc(h.content)}</li>`).join('');
+        const lr = b.last_review ? `${esc(b.last_review.finished_at.slice(0,16).replace('T',' '))} — ${esc(b.last_review.report||'')}` : 'ещё не было';
+        showPanel({kind:'markdown', title: q ? `BRAIN · поиск: ${q}` : 'BRAIN · база знаний', position:'center', ttl:0, content:
+          `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px">
+            <div><div style="color:var(--cyan);font-size:11px;letter-spacing:.2em">ТИПЫ</div>${kinds}
+              <div style="color:var(--cyan);font-size:11px;letter-spacing:.2em;margin-top:10px">КАРТОЧКИ</div><ul style="padding-left:16px">${ents}</ul>
+              <div style="color:var(--cyan);font-size:11px;letter-spacing:.2em;margin-top:10px">ДНЕВНИК</div><ul style="padding-left:16px">${diary||'<li>—</li>'}</ul></div>
+            <div><div style="color:var(--cyan);font-size:11px;letter-spacing:.2em">${q?'НАЙДЕНО':'ПОСЛЕДНИЕ ЗАПИСИ'}</div><ul style="padding-left:16px">${recent||'<li>—</li>'}</ul>
+              ${hist?`<div style="color:var(--cyan);font-size:11px;letter-spacing:.2em;margin-top:10px">БЫЛО РАНЬШЕ</div><ul style="padding-left:16px">${hist}</ul>`:''}
+              ${fails?`<div style="color:var(--amber);font-size:11px;letter-spacing:.2em;margin-top:10px">СБОИ ИНСТРУМЕНТОВ</div><ul style="padding-left:16px">${fails}</ul>`:''}</div>
+           </div><div style="margin-top:10px;color:var(--muted);font-size:11px">ходов ждут ревизии: ${b.pending_turns} · последняя ревизия: ${lr}</div>`, raw:true});
+      } catch(e) { console.warn(e); }
+    }
+    $('#brainBtn').addEventListener('click', () => showBrain(''));
+    on('brain.stats', d => { $('#sBrain').textContent = `${d.notes??'—'} notes · ${d.entities??'—'} cards`; });
+    on('brain.update', d => { const verb = {created:'+', updated:'~', corrected:'✎', archived:'−'}[d.action] || '·'; $('#sBrainLast').textContent = new Date().toLocaleTimeString(); log('ok', `<span class="name">🧠 ${verb} #${d.id??''}</span> ${esc(d.content||'')}`); });
+    on('brain.review', d => log('tool', `<span class="name">🧠 review/${esc(d.stage)}</span> ${esc(typeof d.report==='string'? d.report : JSON.stringify(d.report||{applied:d.applied,errors:d.errors}))}`));
+  }
+  connect();
+
+  async function status(){
+    try { const r = await fetch('/api/status'); const j = await r.json();
+      $('#dHermes').classList.toggle('on', !!(j.hermes&&j.hermes.up)); $('#sClients').textContent = j.clients; if(j.model) $('#sModel').textContent = j.model;
+    } catch { $('#dHermes').classList.remove('on'); }
+  }
+  status(); setInterval(status, 8000);
+  function refreshTimers(){ /* таймеры приходят в контексте агента; здесь — визуальная заглушка */ }
+
+  // ───────────────────────── panels ─────────────────────────
+  function ytEmbed(url){
+    const m = url.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([\w-]{11})/) || url.match(/^([\w-]{11})$/);
+    return m ? `https://www.youtube.com/embed/${m[1]}?autoplay=1` : null;
+  }
+  function mdLite(s){
+    return esc(s).replace(/^### (.*)$/gm,'<h4>$1</h4>').replace(/^## (.*)$/gm,'<h3>$1</h3>').replace(/^# (.*)$/gm,'<h2>$1</h2>')
+      .replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/`(.+?)`/g,'<code>$1</code>').replace(/^- (.*)$/gm,'• $1').replace(/\n/g,'<br>');
+  }
+  function showPanel(p){
+    const el = document.createElement('div'); el.className = 'panel ' + (p.position||'center');
+    let body = '';
+    const c = p.content || '';
+    switch (p.kind) {
+      case 'image': { const src = /^https?:/.test(c) ? c : '/file?path=' + encodeURIComponent(c); body = `<img src="${esc(src)}">`; break; }
+      case 'video': { const yt = ytEmbed(c); body = yt ? `<iframe src="${yt}" allow="autoplay; encrypted-media" allowfullscreen></iframe>` : `<video src="${esc(/^https?:/.test(c)?c:'/file?path='+encodeURIComponent(c))}" controls autoplay></video>`; break; }
+      case 'web': body = `<iframe src="${esc(c)}"></iframe>`; break;
+      case 'chart': { try { const d = JSON.parse(c); const max = Math.max(...d.values); body = '<div class="chart">' + d.values.map((v,i)=>`<div class="bar" style="height:${Math.max(4, v/max*100)}%"><b>${v}</b><span>${esc(d.labels?.[i]??'')}</span></div>`).join('') + '</div>'; } catch { body = '<pre>' + esc(c) + '</pre>'; } break; }
+      case 'markdown': body = p.raw ? c : mdLite(c); break;
+      default: body = `<div style="white-space:pre-wrap">${esc(c)}</div>`;
+    }
+    el.innerHTML = `<div class="ph"><span>${esc(p.title || p.kind || 'PANEL').toUpperCase()}</span><button>✕</button></div><div class="pb">${body}</div>`;
+    el.querySelector('button').onclick = () => el.remove();
+    if ((p.position||'center') === 'center') panels.querySelectorAll('.panel.center').forEach(x=>x.remove());
+    panels.appendChild(el);
+    log('ok', `<span class="name">panel</span> ${esc(p.kind)} · ${esc(p.title||'')}`);
+    if (p.ttl > 0) setTimeout(()=>el.remove(), p.ttl*1000);
+  }
+  function clearPanels(){ panels.innerHTML=''; reply.textContent=''; transcript.innerHTML=''; }
+
+  // ───────────────────────── chat via Hermes API ─────────────────────────
+  const history = [];
+  async function send(text){
+    text = (text||'').trim(); if (!text) return;
+    $('#input').value = '';
+    transcript.innerHTML = `<span class="u">ВЫ</span>${esc(text)}`;
+    history.push({role:'user', content:text});
+    setState('thinking','processing'); reply.textContent=''; let acc='';
+    try {
+      const r = await fetch('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({messages: history.slice(-20)})});
+      if (!r.ok) { const j = await r.json().catch(()=>({error:r.statusText})); reply.textContent = '⚠ ' + (j.error||'ошибка'); setState('','standby'); return; }
+      const rd = r.body.getReader(); const dec = new TextDecoder(); let buf='';
+      while (true) { const {value, done} = await rd.read(); if (done) break; buf += dec.decode(value, {stream:true});
+        let idx; while ((idx = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+1);
+          if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+          try { const j = JSON.parse(line.slice(6)); const d = j.choices?.[0]?.delta?.content; if (d) { acc += d; reply.textContent = acc; reply.scrollTop = reply.scrollHeight; setState('speaking','responding'); } } catch {}
+        } }
+      history.push({role:'assistant', content:acc});
+      speak(acc);
+    } catch (e) { reply.textContent = '⚠ ' + e; }
+    setState('','standby');
+  }
+  $('#sendBtn').onclick = () => send($('#input').value);
+  $('#input').addEventListener('keydown', e => { if (e.key === 'Enter') send(e.target.value); });
+  $('#clearBtn').onclick = clearPanels;
+
+  // ───────────────────────── browser voice (optional) ─────────────────────────
+  let ttsOn = localStorage.getItem('jarvis.tts') === '1'; $('#ttsBtn').classList.toggle('active', ttsOn);
+  $('#ttsBtn').onclick = () => { ttsOn = !ttsOn; localStorage.setItem('jarvis.tts', ttsOn?'1':'0'); $('#ttsBtn').classList.toggle('active', ttsOn); };
+  function speak(text, force){
+    if (!(ttsOn||force) || !('speechSynthesis' in window) || !text) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.replace(/[*#`_>]/g,'').slice(0,1200));
+    u.lang = /[а-яё]/i.test(text) ? 'ru-RU' : 'en-GB'; u.rate = 1.05;
+    const v = speechSynthesis.getVoices().find(v => v.lang.startsWith(u.lang.slice(0,2)) && /Yuri|Milena|Daniel|Google/.test(v.name)) || speechSynthesis.getVoices().find(v=>v.lang.startsWith(u.lang.slice(0,2)));
+    if (v) u.voice = v;
+    u.onstart = () => setState('speaking','speaking'); u.onend = () => setState('','standby');
+    speechSynthesis.speak(u);
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec = null, holding = false;
+  function startRec(){
+    if (!SR) { log('err','<span class="name">mic</span> Web Speech API недоступен — используйте Ctrl+B в терминале Hermes'); return; }
+    if (rec) return;
+    rec = new SR(); rec.lang = 'ru-RU'; rec.interimResults = true; rec.continuous = false;
+    rec.onresult = e => { let t=''; for (const r of e.results) t += r[0].transcript; transcript.innerHTML = `<span class="u">ВЫ</span>${esc(t)}`; if (e.results[e.results.length-1].isFinal) { rec.stop(); send(t); } };
+    rec.onend = () => { rec = null; $('#micBtn').classList.remove('active'); if (reactor.className==='listening') setState('','standby'); };
+    rec.onerror = ev => log('err', `<span class="name">mic</span> ${esc(ev.error)}`);
+    rec.start(); $('#micBtn').classList.add('active'); setState('listening','listening'); speechSynthesis.cancel();
+  }
+  function stopRec(){ if (rec) rec.stop(); }
+  $('#micBtn').onclick = () => rec ? stopRec() : startRec();
+  reactor.onclick = () => rec ? stopRec() : startRec();
+  document.addEventListener('keydown', e => {
+    if (e.target === $('#input')) return;
+    if (e.code === 'Space' && !holding) { e.preventDefault(); holding = true; startRec(); }
+    if (e.key === 'Escape') { speechSynthesis.cancel(); clearPanels(); setState('','standby'); }
+    if ((e.key === 'k' || e.key === 'K' || e.key === 'л' || e.key === 'Л') && document.activeElement.id !== 'input') { showBrain(''); }
+    if (e.key.toLowerCase() === 't') $('#ttsBtn').click();
+    if (e.key.toLowerCase() === 'b') boot();
+  });
+  document.addEventListener('keyup', e => { if (e.code === 'Space' && holding) { holding = false; stopRec(); } });
+})();
+</script>
+</body>
+</html>

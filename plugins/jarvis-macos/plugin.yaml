@@ -1,0 +1,56 @@
+name: jarvis-macos
+version: 1.0.0
+manifest_version: 2
+api_version: 1
+description: "J.A.R.V.I.S — управление macOS: приложения, громкость, яркость, музыка, календарь, напоминания, заметки, скриншоты, Shortcuts, AppleScript"
+author: JARVIS Project
+license: MIT
+homepage: https://github.com/your-name/jarvis-hermes
+tags: [macos, jarvis, automation, desktop]
+
+provides_tools:
+  - mac_app
+  - mac_volume
+  - mac_brightness
+  - mac_dark_mode
+  - mac_power
+  - mac_wifi
+  - mac_bluetooth
+  - mac_shortcut
+  - mac_screenshot
+  - mac_camera_snap
+  - mac_media
+  - mac_calendar
+  - mac_reminders
+  - mac_notes
+  - mac_notify
+  - mac_say
+  - mac_clipboard
+  - mac_open
+  - mac_type
+  - mac_file_manage
+  - mac_contacts
+  - mac_focus
+  - mac_applescript
+  - mac_battery
+  - mac_system_info
+  - mac_finder
+  - mac_wallpaper
+  - mac_window
+  - mac_spotlight
+
+provides_hooks: []
+
+config_schema:
+  allow_raw_applescript:
+    type: bool
+    default: false
+    description: "Разрешить инструменту mac_applescript выполнять произвольные скрипты (иначе — только встроенные безопасные действия)"
+  screenshot_dir:
+    type: str
+    default: "~/.hermes/cache/jarvis/screenshots"
+    description: "Куда сохранять скриншоты и снимки с камеры"
+  default_player:
+    type: str
+    default: "auto"
+    description: "Плеер по умолчанию: auto | music | spotify"

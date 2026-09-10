@@ -1,0 +1,71 @@
+name: jarvis-brain
+version: 1.0.0
+manifest_version: 2
+api_version: 1
+description: "J.A.R.V.I.S — живая база знаний: SQLite+FTS5, автозаполнение из диалогов, релевантный контекст на каждом ходе, ночная ревизия структуры"
+author: JARVIS Project
+license: MIT
+tags: [jarvis, memory, knowledge-base, sqlite]
+
+provides_tools:
+  - brain_remember
+  - brain_recall
+  - brain_forget
+  - brain_entity
+  - brain_review
+  - brain_reflect
+  - brain_history
+
+provides_hooks:
+  - pre_llm_call
+  - post_llm_call
+  - pre_tool_call
+  - post_tool_call
+  - pre_transcription
+  - transform_llm_output
+
+config_schema:
+  inject_context:
+    type: bool
+    default: true
+    description: "Подмешивать релевантные знания в каждый ход"
+  context_limit:
+    type: int
+    default: 5
+    description: "Максимум заметок в контексте хода"
+  min_score:
+    type: float
+    default: 1.2
+    description: "Порог релевантности для автоподмешивания (выше — строже)"
+  log_turns:
+    type: bool
+    default: true
+    description: "Писать сырой журнал ходов для ночного дневника (обрезано, 30 дней)"
+  auto_capture:
+    type: bool
+    default: true
+    description: "Страховка: фразы «запомни …» сохраняются даже если модель не вызвала brain_remember"
+  hud_url:
+    type: str
+    default: "http://127.0.0.1:8765"
+    description: "HUD для событий brain.*"
+  export_path:
+    type: str
+    default: "~/.hermes/jarvis/BRAIN.md"
+    description: "Куда выгружать Markdown-снимок базы"
+  backup_mirror:
+    type: str
+    default: ""
+    description: "Папка для зеркала последнего бэкапа, напр. iCloud Drive: ~/Library/Mobile Documents/com~apple~CloudDocs/JARVIS"
+  log_failures:
+    type: bool
+    default: true
+    description: "Писать сбои инструментов в базу (ночная самодиагностика)"
+  stt_vocabulary:
+    type: bool
+    default: true
+    description: "Подсказывать Whisper имена людей/проектов из базы"
+  voice_polish:
+    type: bool
+    default: true
+    description: "Для голосовых платформ убирать markdown и ужимать финальный ответ до 4 предложений"
