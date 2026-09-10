@@ -8,7 +8,7 @@ VERSION="$(cat "$HERE/../VERSION" 2>/dev/null || echo 0.0.0)"
 command -v swiftc >/dev/null 2>&1 || { echo "swiftc не найден: xcode-select --install"; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/JARVIS.app/Contents/MacOS" "$TMP/JARVIS.app/Contents/Resources"
-swiftc -O -framework AppKit -framework UserNotifications -o "$TMP/JARVIS.app/Contents/MacOS/JARVIS" "$HERE/JarvisMenuBar.swift"
+swiftc -O -framework AppKit -o "$TMP/JARVIS.app/Contents/MacOS/JARVIS" "$HERE/JarvisMenuBar.swift"
 sed "s/__VERSION__/$VERSION/g" "$HERE/Info.plist" > "$TMP/JARVIS.app/Contents/Info.plist"
 # иконка: рисуем арк-реактор в .icns через Python + iconutil (если есть); без иконки приложение тоже работает
 if command -v iconutil >/dev/null 2>&1 && python3 "$HERE/make_icon.py" "$TMP/AppIcon.iconset" 2>/dev/null; then

@@ -9,7 +9,6 @@
 
 import AppKit
 import Foundation
-import UserNotifications
 
 let hermesHome: String = {
     if let env = ProcessInfo.processInfo.environment["HERMES_HOME"], !env.isEmpty { return env }
@@ -63,9 +62,25 @@ func http(_ url: String, timeout: Double = 2, completion: @escaping (Bool, [Stri
     }.resume()
 }
 
+/// Уведомление через osascript: не требует UserNotifications-фреймворка, который падает
+/// («bundleProxyForCurrentProcess is nil») у приложений, собранных без Xcode и запущенных не из /Applications.
 func notify(_ title: String, _ body: String) {
-    let c = UNMutableNotificationContent(); c.title = title; c.body = body
-    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+    let esc = { (s: String) in s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
+    run("/usr/bin/osascript", ["-e", "display notification \"\(esc(body))\" with title \"\(esc(title))\""])
+}
+
+/// Однократная подсказка при первом запуске: приложение живёт в строке меню, окна у него нет.
+func firstRunHint() {
+    let marker = jarvisHome + "/.app-first-run-done"
+    guard !FileManager.default.fileExists(atPath: marker) else { return }
+    try? "1".write(toFile: marker, atomically: true, encoding: .utf8)
+    let a = NSAlert()
+    a.messageText = "JARVIS работает в строке меню"
+    a.informativeText = "Ищите значок ◉ в правом верхнем углу экрана, рядом с часами. Окна и иконки в Dock у приложения нет — это нормально.\n\nЕсли значка не видно на MacBook с вырезом — в строке меню не хватило места: закройте пару приложений со значками или переставьте их, удерживая ⌘."
+    a.addButton(withTitle: "Открыть HUD")
+    a.addButton(withTitle: "Понятно")
+    NSApp.activate(ignoringOtherApps: true)
+    if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(URL(string: hudURL)!) }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -75,7 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var timer: Timer?
 
     func applicationDidFinishLaunching(_ n: Notification) {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "◉"
         item.button?.font = NSFont.systemFont(ofSize: 15, weight: .medium)
@@ -85,6 +99,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // при первом запуске — поднять сервисы, если они не под launchd
         run(jarvisBin, ["gateway", "start"])
         run(jarvisBin, ["hud", "start"])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { firstRunHint() }
+    }
+
+    /// Повторный клик по JARVIS.app в Finder/Launchpad, когда он уже запущен — открываем меню, чтобы было видно, что он жив.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        item.button?.performClick(nil)
+        return false
     }
 
     // ───────── статус ─────────
