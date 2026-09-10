@@ -177,8 +177,13 @@ def brain_stats() -> dict | None:
         notes = c.execute("SELECT COUNT(*) FROM notes WHERE status='active'").fetchone()[0]
         cards = c.execute("SELECT COUNT(*) FROM entities WHERE status='active'").fetchone()[0]
         pending = c.execute("SELECT COUNT(*) FROM turns WHERE digested=0").fetchone()[0]
+        files = 0
+        try:  # хранилище файлов (таблица появляется после первого запуска jarvis-brain ≥ 1.8)
+            files = c.execute("SELECT COUNT(*) FROM files WHERE status='ok'").fetchone()[0]
+        except sqlite3.Error:
+            pass
         c.close()
-        return {"notes": notes, "cards": cards, "pending": pending}
+        return {"notes": notes, "cards": cards, "pending": pending, "files": files}
     except sqlite3.Error:
         return None
 
@@ -230,7 +235,7 @@ def demo_snapshot() -> dict:
             {"label": "Перерыв", "target": (now + dt.timedelta(minutes=15)).isoformat(), "seconds": 15 * 60},
         ],
         "mode": "focus",
-        "brain": {"notes": 214, "cards": 37, "pending": 3},
+        "brain": {"notes": 214, "cards": 37, "pending": 3, "files": 128},
         "version": {"version": "1.5.0", "channel": "stable", "update_available": False, "latest": ""},
         "model": "claude-sonnet-4.5",
         "demo": True,

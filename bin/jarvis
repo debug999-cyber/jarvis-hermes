@@ -68,10 +68,12 @@ J.A.R.V.I.S. on Hermes Agent
   jarvis status          состояние компонентов
   jarvis brain [stats|review|export|diary|profile|log|backup|restore|sql]   база знаний
   jarvis brain import    первичный импорт: контакты, календарь, заметки → карточки в базе
+  jarvis shortcuts       быстрые команды Siri/Shortcuts: «Спросить JARVIS», «В хранилище JARVIS» (Finder), «Замолчать», брифинг
+  jarvis vault [status|add <папка>|remove|search <слова>|list|tree|reindex|open]   хранилище файлов и проектов (~/JARVIS)
   jarvis brief           утренний брифинг прямо сейчас
   jarvis selftest [--fix] проверить все mac_* инструменты и права на ЭТОМ Mac (без LLM)
   jarvis heartbeat       одна проверка «нужно ли что-то сказать?» (для cron/Shortcuts)
-  jarvis doctor          диагностика Hermes + проверка плагинов JARVIS
+  jarvis doctor [--fix]  самодиагностика: модель, плагины, API, HUD, launchd, права, хранилище (--fix чинит; --hermes = hermes doctor)
   jarvis update          обновить JARVIS с GitHub (бэкап → установка → перезапуск; откат: --rollback)
   jarvis update --check  только проверить;  --status · --channel stable|main · --auto off|check|auto · --hermes
   jarvis app [build|quit|status|debug]  приложение строки меню JARVIS.app
@@ -140,7 +142,11 @@ case "$cmd" in
       path)   echo "$BRAIN_DB" ;;
       backup) [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"
               dst="$BRAIN_DB.manual-$(date +%Y%m%d-%H%M%S)"; cp "$BRAIN_DB" "$dst" && echo "ok: $dst" ;;
-      sql)    [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"; exec sqlite3 "$BRAIN_DB" "$@" ;;
+      sql)    # только чтение: открываем через URI mode=ro — случайный DELETE/UPDATE невозможен.
+              # Для записи (осознанно): jarvis brain sql --rw "…"
+              [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"
+              if [[ "${1:-}" == "--rw" ]]; then shift; exec sqlite3 "$BRAIN_DB" "$@"; fi
+              exec sqlite3 -readonly "$BRAIN_DB" "$@" ;;
       log)    [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"; sqlite3 -header -column "$BRAIN_DB" "SELECT ts, actor, op, table_name, row_id FROM changelog ORDER BY id DESC LIMIT ${1:-20}" ;;
       diary)  [[ -f "$BRAIN_DB" ]] || fail "базы ещё нет: $BRAIN_DB"; sqlite3 -column "$BRAIN_DB" "SELECT day, summary FROM episodes ORDER BY day DESC LIMIT ${1:-7}" ;;
       profile) [[ -f "$HERMES_HOME/jarvis/PROFILE.md" ]] && cat "$HERMES_HOME/jarvis/PROFILE.md" || echo "Профиль ещё не выгружен — jarvis brain export" ;;
@@ -156,12 +162,20 @@ case "$cmd" in
               sqlite3 "$BRAIN_DB" "SELECT 'notes: '||COUNT(*) FROM notes WHERE status='active'; SELECT 'entities: '||COUNT(*) FROM entities WHERE status='active'; SELECT 'episodes: '||COUNT(*) FROM episodes; SELECT 'pending turns: '||COUNT(*) FROM turns WHERE digested=0; SELECT 'last review: '||COALESCE(MAX(finished_at),'—') FROM reviews;"
               echo "file: $BRAIN_DB ($(du -k "$BRAIN_DB" | cut -f1) KB)  ·  markdown: $HERMES_HOME/jarvis/BRAIN.md" ;;
     esac ;;
+  shortcuts) exec "$PY" "$JARVIS_HOME/make_shortcuts.py" "$@" ;;
+  vault)
+    VAULT_PY="$HERMES_HOME/plugins/jarvis-brain/vault.py"
+    [[ -f "$VAULT_PY" ]] || fail "плагин jarvis-brain не установлен (bash install.sh)"
+    case "${1:-status}" in
+      open) shift || true; "$PY" "$VAULT_PY" init >/dev/null; open "${JARVIS_VAULT_DIR:-$HOME/JARVIS}" ;;
+      *)    exec "$PY" "$VAULT_PY" "$@" ;;
+    esac ;;
   doctor)
-    hermes doctor || true
-    echo; say "Плагины JARVIS:"; hermes plugins list 2>/dev/null | grep -i jarvis || printf "${CR}  не найдены — hermes plugins enable jarvis-core jarvis-macos jarvis-brain${C0}\n"
-    for p in jarvis-core jarvis-macos jarvis-brain; do
-      hermes plugins doctor "$HERMES_HOME/plugins/$p" 2>/dev/null | tail -n 5 || true
-    done ;;
+    case "${1:-}" in
+      --hermes) shift; exec hermes doctor "$@" ;;   # «сырой» доктор самого Hermes
+      *) [[ -f "$JARVIS_HOME/doctor.py" ]] || fail "doctor.py не установлен (bash install.sh)"
+         exec "$PY" "$JARVIS_HOME/doctor.py" "$@" ;;
+    esac ;;
   update)
     case "${1:-}" in
       --check|check)     shift; exec "$PY" "$JARVIS_HOME/update.py" check "$@" ;;

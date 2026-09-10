@@ -157,3 +157,40 @@ def test_plugin_turn_events_dropped_while_proxy_chat_in_flight(srv):
         hud._PROXY_TURNS = 0
     _, r = _post(srv + "/api/event", {"event": "stream.delta", "data": {"delta": "x"}})
     assert not r.get("dropped")
+
+
+def test_tts_endpoint_falls_back_and_serves_audio(srv, monkeypatch):
+    import tts
+    # без движка → 204 и заголовок с именем движка: HUD озвучит браузером
+    monkeypatch.setattr(tts, "synthesize", lambda text: None)
+    monkeypatch.setattr(tts, "engine", lambda: "none")
+    req = urllib.request.Request(srv + "/api/tts", data='{"text":"Слушаю, сэр"}'.encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "Origin": srv})
+    with urllib.request.urlopen(req) as r:
+        assert r.status == 204 and r.headers["X-JARVIS-TTS"] == "none"
+    # с движком → байты и mime
+    monkeypatch.setattr(tts, "synthesize", lambda text: (b"ID3fake", "audio/mpeg"))
+    with urllib.request.urlopen(req) as r:
+        assert r.status == 200 and r.headers["Content-Type"] == "audio/mpeg" and r.read() == b"ID3fake"
+    # пустой текст → 400
+    bad = urllib.request.Request(srv + "/api/tts", data=b'{"text":"  "}', method="POST",
+                                 headers={"Content-Type": "application/json", "Origin": srv})
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(bad)
+    assert e.value.code == 400
+
+
+def test_tts_clean_and_cache(tmp_path, monkeypatch):
+    import tts
+    assert tts.clean("**Готово**, см. https://a.b/c и `код`") == "Готово, см. ссылка и код"
+    monkeypatch.setattr(tts, "CACHE_DIR", tmp_path / "tts")
+    monkeypatch.setattr(tts, "engine", lambda: "edge-tts-cli")
+    calls = []
+
+    def fake_cli(text, voice, speed, out):
+        calls.append(text); out.write_bytes(b"mp3"); return True
+    monkeypatch.setattr(tts, "_edge_cli", fake_cli)
+    monkeypatch.setattr(tts.shutil, "which", lambda n: "/usr/bin/edge-tts" if n == "edge-tts" else None)
+    assert tts.synthesize("Привет") == (b"mp3", "audio/mpeg")
+    assert tts.synthesize("Привет") == (b"mp3", "audio/mpeg")
+    assert calls == ["Привет"], "второй вызов должен прийти из кэша"

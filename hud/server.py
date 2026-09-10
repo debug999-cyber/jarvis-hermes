@@ -38,7 +38,8 @@ from urllib.parse import parse_qs, urlparse
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
 sys.path.insert(0, str(HERE))
-import sysinfo  # noqa: E402 — живые данные виджетов (батарея, календарь, таймеры…); путь добавлен строкой выше
+import sysinfo  # noqa: E402
+import tts  # noqa: E402 — серверный синтез речи (edge-tts / say) для POST /api/tts — живые данные виджетов (батарея, календарь, таймеры…); путь добавлен строкой выше
 
 DASH: sysinfo.Collector | None = None
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
@@ -128,6 +129,12 @@ def brain_overview(query: str = "", limit: int = 12) -> dict:
                    WHERE n.status='superseded' ORDER BY n.valid_until DESC LIMIT 5""")]
         except sqlite3.Error:
             out["failures"], out["history"] = [], []
+        try:  # хранилище файлов
+            out["vault"] = {"files": one("SELECT COUNT(*) FROM files WHERE status='ok'"),
+                            "sources": [dict(r) for r in c.execute("SELECT name, path FROM vault_sources ORDER BY name")],
+                            "recent": [dict(r) for r in c.execute("SELECT rel, indexed_at FROM files WHERE status='ok' ORDER BY mtime DESC LIMIT 5")]}
+        except sqlite3.Error:
+            out["vault"] = None
         if out["last_review"]:
             out["last_review"] = dict(out["last_review"])
         if query.strip():
@@ -292,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
                 "clients": BUS.client_count,
                 "hermes": self._hermes_health(),
                 "model": CONFIG["model"],
+                "tts": tts.engine(),
             })
         if u.path == "/api/brain":
             return self._json(200, brain_overview(parse_qs(u.query).get("q", [""])[0]))
@@ -340,6 +348,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._timer(self._read_json())
         if u.path == "/api/hush":
             return self._json(200, hush())
+        if u.path == "/api/tts":
+            return self._tts(self._read_json())
         if u.path == "/api/mode":
             body = self._read_json()
             mode = body.get("mode") if body.get("mode") in ("normal", "focus", "night", "presentation") else "normal"
@@ -347,6 +357,26 @@ class Handler(BaseHTTPRequestHandler):
             BUS.publish({"event": "mode.set", "data": {"mode": mode, "source": "hud"}})
             return self._json(200, {"ok": True, "mode": mode})
         return self._json(404, {"error": "not found"})
+
+    def _tts(self, body: dict) -> None:
+        """Озвучить текст голосом Hermes (edge-tts, тот же, что в voice mode). 204 = движка нет, HUD озвучит сам."""
+        text = str(body.get("text") or "")[:tts.MAX_CHARS]
+        if not text.strip():
+            return self._json(400, {"error": "text required"})
+        res = tts.synthesize(text)
+        if not res:
+            self.send_response(204)
+            self.send_header("X-JARVIS-TTS", tts.engine())
+            self.end_headers()
+            return None
+        audio, mime = res
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(audio)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(audio)
+        return None
 
     def _timer(self, body: dict) -> None:
         """Таймеры из виджета HUD: общий state.json с плагином jarvis-core, стреляет TimerWatcher."""

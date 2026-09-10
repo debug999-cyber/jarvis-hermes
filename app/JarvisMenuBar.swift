@@ -70,18 +70,64 @@ func notify(_ title: String, _ body: String) {
     run("/usr/bin/osascript", ["-e", "display notification \"\(esc(body))\" with title \"\(esc(title))\""])
 }
 
-/// Однократная подсказка при первом запуске: приложение живёт в строке меню, окна у него нет.
-func firstRunHint() {
-    let marker = jarvisHome + "/.app-first-run-done"
-    guard !FileManager.default.fileExists(atPath: marker) else { return }
-    try? "1".write(toFile: marker, atomically: true, encoding: .utf8)
-    let a = NSAlert()
-    a.messageText = "JARVIS работает в строке меню"
-    a.informativeText = "Ищите значок ◉ в правом верхнем углу экрана, рядом с часами. Окна и иконки в Dock у приложения нет — это нормально.\n\nЕсли значка не видно на MacBook с вырезом — в строке меню не хватило места: закройте пару приложений со значками или переставьте их, удерживая ⌘."
-    a.addButton(withTitle: "Открыть HUD")
-    a.addButton(withTitle: "Понятно")
+/// Мастер первого запуска: 3 шага, каждый — одно окно с кнопками. Без терминала, без чтения документации.
+///   1. где живёт JARVIS (строка меню) → 2. модель отвечает? (иначе — открыть мастер модели)
+///   3. права macOS (selftest --fix) → 4. открыть HUD и папку ~/JARVIS.
+/// Повторить в любой момент: меню → «Мастер настройки».
+func doctorJSON(_ completion: @escaping ([String: Any]) -> Void) {
+    run(jarvisBin, ["doctor", "--json", "--quick"]) { _, out in
+        // doctor печатает JSON; вокруг могут быть строки от hermes — берём от первой «{» до конца
+        if let i = out.firstIndex(of: "{"), let d = String(out[i...]).data(using: .utf8),
+           let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] { DispatchQueue.main.async { completion(j) } }
+        else { DispatchQueue.main.async { completion([:]) } }
+    }
+}
+
+func alert(_ title: String, _ text: String, _ buttons: [String]) -> Int {
+    let a = NSAlert(); a.messageText = title; a.informativeText = text
+    buttons.forEach { a.addButton(withTitle: $0) }
     NSApp.activate(ignoringOtherApps: true)
-    if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(URL(string: hudURL)!) }
+    return a.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue   // 0 = первая кнопка
+}
+
+func firstRunWizard(force: Bool = false) {
+    let marker = jarvisHome + "/.app-first-run-done"
+    guard force || !FileManager.default.fileExists(atPath: marker) else { return }
+    try? "1".write(toFile: marker, atomically: true, encoding: .utf8)
+
+    // шаг 1 — где искать
+    let step1 = alert("Добро пожаловать. Я JARVIS.",
+                      "Я живу в строке меню — значок ◉ справа сверху, рядом с часами. Окна в Dock у меня нет.\n\nСейчас за минуту проверим, что всё готово: модель, права macOS, папка для ваших файлов.",
+                      ["Проверить", "Позже"])
+    guard step1 == 0 else { return }
+
+    doctorJSON { j in
+        let checks = (j["checks"] as? [[String: Any]]) ?? []
+        func status(_ name: String) -> (String, String, String) {
+            let c = checks.first { ($0["name"] as? String)?.hasPrefix(name) == true }
+            return (c?["status"] as? String ?? "skip", c?["note"] as? String ?? "", c?["fix"] as? String ?? "")
+        }
+        // шаг 2 — модель
+        let model = status("Модель")
+        if model.0 == "fail" {
+            let r = alert("Модель не настроена или не отвечает", model.1 + "\n\nБез модели JARVIS не может думать. Рекомендую OpenRouter (один ключ — сотни моделей) или Ollama (локально, бесплатно).",
+                          ["Открыть мастер модели", "Пропустить"])
+            if r == 0 { openInTerminal("hermes model && jarvis gateway restart") }
+        }
+        // шаг 3 — права macOS (полный selftest долгий — предлагаем, не навязываем)
+        let r3 = alert("Права macOS", "Чтобы читать календарь, напоминания, управлять окнами и делать скриншоты, macOS попросит разрешения. Проверка займёт ~20 секунд и откроет нужные панели настроек.",
+                       ["Проверить права", "Позже"])
+        if r3 == 0 { openInTerminal("jarvis selftest --fix") }
+        // шаг 4 — хранилище и HUD
+        let vault = status("Хранилище")
+        let r4 = alert("Ваши файлы", "Папка ~/JARVIS — моё хранилище: кладите туда документы, PDF, заметки, целые проекты (`jarvis vault add <папка>`). Я читаю их содержимое и ищу по нему.\n\n" + (vault.1.isEmpty ? "" : "Сейчас: " + vault.1),
+                       ["Открыть папку и HUD", "Только HUD"])
+        run(jarvisBin, ["vault", "init"])
+        if r4 == 0 { run("/usr/bin/open", [NSHomeDirectory() + "/JARVIS"]) }
+        NSWorkspace.shared.open(URL(string: hudURL)!)
+        let apiOk = status("Gateway").0 == "ok"
+        if !apiOk { notify("JARVIS", "Сервисы поднимаются… если через минуту HUD пишет «нет связи» — меню → Диагностика.") }
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -100,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // при первом запуске — поднять сервисы, если они не под launchd
         run(jarvisBin, ["gateway", "start"])
         run(jarvisBin, ["hud", "start"])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { firstRunHint() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { firstRunWizard() }
     }
 
     /// Повторный клик по JARVIS.app в Finder/Launchpad, когда он уже запущен — открываем меню, чтобы было видно, что он жив.
@@ -159,12 +205,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(hudUp && apiUp ? "Остановить сервисы" : "Запустить сервисы", #selector(toggleServices))
         add("Утренний брифинг сейчас", #selector(brief))
         add("Проверить интеграции (selftest)", #selector(selftest))
+        add("Диагностика и починка (doctor --fix)", #selector(doctorFix), key: "d")
+        add("Папка файлов ~/JARVIS", #selector(openVault), key: "f")
         m.addItem(.separator())
         add("Проверить обновления", #selector(checkUpdates), key: "u")
         add("Откатить последнее обновление", #selector(rollback))
         add("Настройки (config.yaml)", #selector(openConfig), key: ",")
         add("Разрешения macOS", #selector(perms))
         add("Логи", #selector(logs))
+        add("Мастер настройки…", #selector(wizard))
         m.addItem(.separator())
         add("Открыть на GitHub", #selector(github))
         add("Выйти из JARVIS.app", #selector(quit), key: "q")
@@ -177,6 +226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func brief() { openInTerminal("jarvis brief") }
     @objc func hush() { run(jarvisBin, ["hush"]) }
     @objc func selftest() { openInTerminal("jarvis selftest") }
+    @objc func doctorFix() { openInTerminal("jarvis doctor --fix") }
+    @objc func openVault() { run(jarvisBin, ["vault", "init"]) { _, _ in DispatchQueue.main.async { run("/usr/bin/open", [NSHomeDirectory() + "/JARVIS"]) } } }
+    @objc func wizard() { firstRunWizard(force: true) }
     @objc func logs() { openInTerminal("jarvis logs") }
     @objc func openConfig() { NSWorkspace.shared.open(URL(fileURLWithPath: hermesHome + "/config.yaml")) }
     @objc func perms() { run(jarvisBin, ["perms"]) }

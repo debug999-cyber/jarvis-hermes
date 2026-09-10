@@ -2,6 +2,8 @@
 
 # J.A.R.V.I.S. on Hermes Agent
 
+<p align="right"><a href="README.en.md">🇬🇧 English</a></p>
+
 > **Just A Rather Very Intelligent System** — персональный голосовой ИИ-ассистент для macOS,
 > построенный на [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous Research, MIT, 240k+ ★).
 > Hermes даёт «мозг» (LLM, память, навыки, инструменты, планировщик, мессенджеры),
@@ -20,18 +22,19 @@
 | Область | Возможности | Откуда |
 |---|---|---|
 | 🎙 **Голос** | wake word «Hey Jarvis» (локально, openWakeWord), push-to-talk `Ctrl+B`, локальный Whisper (STT), Edge/ElevenLabs/OpenAI TTS, барж-ин, стоп-фразы | Hermes voice + наш конфиг |
-| 🖥 **Управление Mac** | приложения, окна, громкость, яркость, тёмная тема, Wi-Fi/Bluetooth, батарея, сон/блокировка, скриншот + «посмотри на экран», камера, буфер обмена, набор текста и хоткеи, Spotlight, Finder, файлы (удаление только в Корзину), обои | плагин `jarvis-macos` (29 инструментов) |
+| 🖥 **Управление Mac** | приложения, окна, громкость, яркость, тёмная тема, Wi-Fi/Bluetooth, батарея, сон/блокировка, **«что у меня на экране?» → скриншот и анализ без лишних вопросов**, камера, буфер обмена, набор текста и хоткеи, Spotlight, Finder, файлы (удаление только в Корзину), обои | плагин `jarvis-macos` (29 инструментов) |
 | 📅 **Продуктивность** | Календарь, Напоминания, Заметки, Быстрые команды (Shortcuts), таймеры и будильники, утренний/вечерний брифинг | `jarvis-macos` + `jarvis-core` |
 | 🎵 **Медиа** | Apple Music / Spotify: play/pause/next, «что играет», плейлисты | `jarvis-macos` |
 | 🧠 **Мозг** | любая LLM (OpenRouter, Anthropic, OpenAI, Gemini, Ollama локально…), долговременная память, самообучение навыкам, FTS-поиск по прошлым сессиям | Hermes |
+| 📁 **Хранилище файлов** | папка `~/JARVIS`: бросайте туда любые документы, PDF, таблицы, презентации и подключайте целые проекты — JARVIS индексирует содержимое (FTS5), ищет, читает, правит и запускает; новые файлы в `inbox/` замечает сам и предлагает, что сделать. Секреты не индексируются. [docs/VAULT.md](docs/VAULT.md) | плагин `jarvis-brain` (`vault_*`) |
 | 🗄 **База знаний** | собственная структурированная база (SQLite+FTS5): люди, проекты, предпочтения, решения, дневник по дням; JARVIS сам пополняет её в диалоге, подмешивает релевантное в каждый ход и **ночью пересматривает структуру** (дубли, конфликты, таксономия, карточки) с бэкапом и журналом изменений. **Помнит, что было верно раньше** (темпоральные факты), ведёт живые резюме карточек, **учится на сбоях собственных инструментов**, уточняет сомнительное утром | плагин `jarvis-brain` |
 | 🌐 **Интернет** | веб-поиск, извлечение страниц, браузер (Playwright), картинки, видео с YouTube на HUD | Hermes + `jarvis_hud` |
 | 💻 **Разработка** | терминал, файлы, патчи, выполнение кода, делегирование субагентам, Claude Code / Codex как навыки, MCP-серверы | Hermes |
-| 🕹 **HUD** | рабочий стол в браузере: сфера-индикатор (реагирует на голос), виджеты на реальных данных — календарь на сегодня, батарея, Focus, модель, таймеры (можно ставить прямо в HUD), база знаний; панели от агента (текст/картинки/видео/веб/графики), чат, голос в браузере | `hud/` |
+| 🕹 **HUD** | рабочий стол в браузере: сфера-индикатор (реагирует на голос), виджеты на реальных данных — календарь на сегодня, батарея, Focus, модель, таймеры (можно ставить прямо в HUD), база знаний и хранилище; панели от агента (текст/картинки/видео/веб/графики), чат, **озвучка голосом Hermes (edge-tts) прямо в браузере** | `hud/` |
 | 📱 **Везде** | Telegram, Discord (в т.ч. голосовые каналы), WhatsApp, Slack, iMessage, Email — одна память и один агент | Hermes gateway |
-| ⏰ **Автономность** | cron-задачи (брифинг 08:00, вечерний итог, ночная ревизия базы 03:30), локальный watchdog без LLM (батарея, **справка из базы перед встречей**, **Focus macOS → режим JARVIS**), **heartbeat по чек-листу `HEARTBEAT.md`** (молчит, если всё спокойно), режимы focus/night/presentation | Hermes cron + `jarvis-core` |
+| ⏰ **Автономность** | **событийные триггеры** (новые файлы в хранилище, возвращение к Mac → брифинг, диск, питание — без LLM, пока не появится повод), cron-задачи (брифинг 08:00, вечерний итог, ночная ревизия базы 03:30), локальный watchdog (батарея, **справка из базы перед встречей**, **Focus macOS → режим JARVIS**), heartbeat по чек-листу `HEARTBEAT.md`, режимы focus/night/presentation | Hermes cron + `jarvis-core` |
 | 🏠 **Умный дом** | Home Assistant (встроенный toolset) или HomeKit через Shortcuts | навык `jarvis-home-automation` |
-| 📦 **Приложение** | JARVIS.app в строке меню (статус, HUD, голос, «Спросить…», обновления), автозапуск при входе, **автообновление с GitHub** с бэкапом и откатом, «обнови себя» голосом | `app/`, `scripts/update.py` |
+| 📦 **Приложение** | JARVIS.app в строке меню (статус, HUD, голос, «Спросить…», обновления, **мастер первого запуска**, диагностика), автозапуск при входе, **автообновление с GitHub** с бэкапом и откатом, Быстрые команды для Siri/Finder | `app/`, `scripts/update.py` |
 | 🔒 **Безопасность** | подтверждение опасных команд (approvals: smart), необратимые действия — только с confirmed=true, локальный STT, секреты не покидают Mac | Hermes + наши инструменты |
 
 
@@ -47,11 +50,14 @@
 
 ## Установка (macOS, 5 минут)
 
+Одна команда в Terminal (скачает последний релиз и запустит установщик с вопросами):
+
 ```bash
-git clone https://github.com/your-name/jarvis-hermes.git   # или распакуйте архив
-cd jarvis-hermes
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/debug999-cyber/jarvis-hermes/main/get.sh | bash
 ```
+
+Или вручную: [скачать zip релиза](https://github.com/debug999-cyber/jarvis-hermes/releases/latest) (внутри — готовое
+JARVIS.app, компилятор не нужен) → распаковать → `bash install.sh`. Или `git clone … && cd jarvis-hermes && ./install.sh`.
 
 Установщик сам поставит Homebrew-зависимости, Hermes Agent, голосовые пакеты, плагины, личность,
 навыки, cron-задачи, команду `jarvis` и (по желанию) автозапуск. В конце спросит провайдера LLM.
@@ -61,8 +67,9 @@ cd jarvis-hermes
 
 Подробно: [docs/INSTALL.md](docs/INSTALL.md)
 
-После установки: `jarvis selftest` (проверит все интеграции и подскажет, какие права выдать) и `jarvis brain import`
-(JARVIS познакомится с вашими контактами и проектами).
+После установки JARVIS.app сам проведёт **мастер первого запуска** (модель → права → папка файлов → HUD).
+Если что-то не работает — одна команда: **`jarvis doctor --fix`** (проверит модель, плагины, API, HUD, права, хранилище и починит, что может).
+Дальше: `jarvis brain import` (JARVIS познакомится с контактами и проектами), `jarvis shortcuts` (команды для Siri и Finder).
 
 ## Запуск
 
@@ -108,9 +115,10 @@ jarvis-hermes/
 │   └── launchd/*.plist        ← автозапуск HUD и gateway
 ├── skills/                    ← навыки: briefing, voice-etiquette, research-brief, home-automation
 ├── hooks/jarvis-boot/         ← gateway-хук: BOOT.md + зеркалирование активности на HUD
-├── scripts/                   ← merge_config.py, setup_cron.sh, selftest.py, update.py, publish.sh
+├── scripts/                   ← merge_config.py, setup_cron.sh, selftest.py, doctor.py, update.py, make_shortcuts.py
+├── get.sh                     ← установка одной командой (curl | bash)
 ├── skill-bundles/jarvis.yaml  ← /jarvis — включить все навыки разом
-├── tests/                     ← pytest (65 тестов, работают и на Linux)
+├── tests/                     ← pytest (110+ тестов, работают и на Linux) + e2e HUD в браузере (Playwright)
 └── docs/                      ← INSTALL, USAGE, ARCHITECTURE, DEVELOPMENT, TROUBLESHOOTING, RESEARCH
 ```
 
@@ -121,6 +129,7 @@ jarvis-hermes/
 | [docs/INSTALL.md](docs/INSTALL.md) | Пошаговая установка, разрешения macOS, выбор LLM, Telegram/Discord, автозапуск, удаление |
 | [docs/USAGE.md](docs/USAGE.md) | Команды `jarvis`, slash-команды, 80+ примеров фраз, режимы, HUD, cron |
 | [docs/BRAIN.md](docs/BRAIN.md) | База знаний: модель данных, как JARVIS её пополняет и пересматривает ночью, команды, откат |
+| [docs/VAULT.md](docs/VAULT.md) | Хранилище файлов и проектов `~/JARVIS`: что индексируется, как агент этим пользуется, приватность |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Как устроено: Hermes ↔ плагины ↔ HUD, поток данных, схемы |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Как добавить свой инструмент/навык/хук, тесты, соглашения |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Типовые проблемы: микрофон, Accessibility, wake word, TTS, API |
@@ -129,8 +138,6 @@ jarvis-hermes/
 | [docs/APP.md](docs/APP.md) | JARVIS.app в строке меню и автообновление: каналы, режимы, откат, выпуск версий |
 | [docs/SECURITY.md](docs/SECURITY.md) | Модель угроз, разрешения, что не покидает Mac |
 | [docs/CHANGELOG.md](docs/CHANGELOG.md) | История версий |
-| [docs/RESEARCH.md](docs/RESEARCH.md) | Откуда взяты идеи: обзор open-source «Джарвисов», YouTube-проектов, что заимствовано |
-| [docs/SECURITY.md](docs/SECURITY.md) | Модель угроз, что JARVIS никогда не делает без подтверждения |
 
 ## Требования
 
@@ -155,8 +162,8 @@ jarvis-hermes/
 
 ## Статус
 
-**1.7.0 — стабильный релиз.** 91 автотест (Linux + macOS, Python 3.11/3.12), линтеры `ruff`/`shellcheck` и сборка JARVIS.app
-в CI на каждый коммит; каждый релиз проходит smoke-тест updater'а с автоматическим откатом. Проверено на реальном Mac (macOS 26, M-серия):
+**1.8.0 — стабильный релиз.** 112 автотестов + e2e HUD в браузере (Linux + macOS, Python 3.11/3.12), линтеры `ruff`/`shellcheck`
+и сборка JARVIS.app в CI на каждый коммит; в каждом релизе — готовое приложение; каждый релиз проходит smoke-тест updater'а с автоматическим откатом. Проверено на реальном Mac (macOS 26, M-серия):
 после `jarvis selftest` и выдачи прав работают все интеграции. Issue и PR приветствуются.
 
 ## Лицензия

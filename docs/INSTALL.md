@@ -15,11 +15,21 @@
 
 ## 1. Скачать проект
 
+Самый простой способ — одна команда в Terminal (Программы → Утилиты → Terminal), она сделает шаги 1 и 2 сама:
+
 ```bash
-git clone https://github.com/your-name/jarvis-hermes.git
+curl -fsSL https://raw.githubusercontent.com/debug999-cyber/jarvis-hermes/main/get.sh | bash
+```
+
+Она скачает последний релиз в `~/Downloads/jarvis-hermes` и запустит установщик с вопросами. Если Xcode Command Line
+Tools ещё не стоят, macOS сначала предложит их поставить — дождитесь и запустите команду ещё раз.
+
+Вручную: [zip последнего релиза](https://github.com/debug999-cyber/jarvis-hermes/releases/latest) (внутри `app/prebuilt/JARVIS.app.zip` —
+готовое приложение, компилятор не нужен) → распаковать → открыть терминал в папке. Или:
+```bash
+git clone https://github.com/debug999-cyber/jarvis-hermes.git
 cd jarvis-hermes
 ```
-или распакуйте архив `jarvis-hermes.zip` и откройте терминал в этой папке.
 
 ## 2. Запустить установщик
 

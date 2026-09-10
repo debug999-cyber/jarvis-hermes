@@ -72,6 +72,7 @@ def isolated_state(tmp_path, monkeypatch):
     """Состояние jarvis-core (таймеры/режим) — во временную папку."""
     monkeypatch.setenv("JARVIS_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("JARVIS_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("JARVIS_VAULT_DIR", str(tmp_path / "vault"))   # хранилище файлов — не трогаем настоящий ~/JARVIS
     yield
 
 

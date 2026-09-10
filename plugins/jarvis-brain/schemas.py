@@ -163,3 +163,56 @@ BRAIN_HISTORY = {
 }
 
 ALL = [BRAIN_REMEMBER, BRAIN_RECALL, BRAIN_FORGET, BRAIN_ENTITY, BRAIN_REVIEW, BRAIN_REFLECT, BRAIN_HISTORY]
+
+# ── Vault: файлы и проекты пользователя ─────────────────────────────────────
+VAULT_SEARCH = {
+    "name": "vault_search",
+    "description": (
+        "Поиск по СОДЕРЖИМОМУ файлов и проектов пользователя в хранилище JARVIS (~/JARVIS и подключённые папки): "
+        "документы, заметки, PDF, таблицы, исходный код. Возвращает файлы, номер строки и фрагмент. "
+        "Используй, когда вопрос касается «моих файлов/документов/проекта/заметок/договора/кода». "
+        "Дальше читай файл через vault_read или штатный read_file по возвращённому path — доступ полный, "
+        "править можно обычными инструментами (write_file, terminal) по этим путям."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Ключевые слова (по-русски/по-английски), как в поиске"},
+            "limit": {"type": "integer", "default": 8, "maximum": 30},
+            "in": {"type": "string", "description": "Ограничить папкой хранилища, например projects/foo или inbox"},
+        },
+        "required": ["query"],
+    },
+}
+
+VAULT_READ = {
+    "name": "vault_read",
+    "description": (
+        "Прочитать файл из хранилища (в т.ч. PDF, DOCX, PPTX, XLSX — с извлечением текста) кусками по ~6000 символов. "
+        "path — абсолютный или относительно ~/JARVIS. Для папки вернёт дерево. Для длинных файлов передавай next_offset."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}, "offset": {"type": "integer", "default": 0}, "limit": {"type": "integer", "default": 6000}},
+        "required": ["path"],
+    },
+}
+
+VAULT_MANAGE = {
+    "name": "vault_manage",
+    "description": (
+        "Управление хранилищем: status — что проиндексировано; list — файлы (опционально prefix, recent); tree — структура; "
+        "add — подключить существующую папку проекта (path, name) как projects/<name>; remove — отключить; reindex — обновить индекс сейчас."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["status", "list", "tree", "add", "remove", "reindex"]},
+            "path": {"type": "string"}, "name": {"type": "string"}, "prefix": {"type": "string"},
+            "recent": {"type": "boolean", "default": False}, "depth": {"type": "integer", "default": 2},
+        },
+        "required": ["action"],
+    },
+}
+
+ALL = [*ALL, VAULT_SEARCH, VAULT_READ, VAULT_MANAGE]

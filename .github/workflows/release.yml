@@ -1,6 +1,7 @@
 name: release
 # Создаёт GitHub Release при изменении файла VERSION в main.
 # Канал автообновления `stable` берёт именно релизы; `main` — каждый коммит.
+# Артефакты: jarvis-hermes-X.Y.Z.zip (исходники + собранное JARVIS.app внутри app/prebuilt/) и JARVIS.app.zip отдельно.
 on:
   push:
     branches: [main]
@@ -9,7 +10,19 @@ on:
 permissions:
   contents: write
 jobs:
+  app:
+    # JARVIS.app собирается на macOS-раннере, чтобы пользователю без Xcode CLT не пришлось ничего компилировать
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash app/build.sh "$RUNNER_TEMP/JARVIS.app" && test -x "$RUNNER_TEMP/JARVIS.app/Contents/MacOS/JARVIS"
+      - run: cd "$RUNNER_TEMP" && ditto -c -k --keepParent JARVIS.app JARVIS.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS.app
+          path: ${{ runner.temp }}/JARVIS.app.zip
   release:
+    needs: app
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,19 +38,27 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install pytest pyyaml && python -m pytest tests -q
         if: steps.t.outputs.exists != 'true'
+      - uses: actions/download-artifact@v4
+        if: steps.t.outputs.exists != 'true'
+        with: { name: JARVIS.app, path: app/prebuilt }
       - name: Release notes from CHANGELOG
         if: steps.t.outputs.exists != 'true'
         run: |
           awk -v v="${{ steps.v.outputs.version }}" '
             $0 ~ "^## "v { on=1; next } on && /^## / { exit } on { print }' docs/CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "Версия ${{ steps.v.outputs.version }}" > notes.md
+          printf '\n---\nУстановка одной командой:\n\n    curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/get.sh | bash\n' >> notes.md
       - name: Zip
         if: steps.t.outputs.exists != 'true'
-        run: zip -qr "jarvis-hermes-${{ steps.v.outputs.version }}.zip" . -x ".git/*" "*/__pycache__/*" ".pytest_cache/*"
+        run: |
+          zip -qr "jarvis-hermes-${{ steps.v.outputs.version }}.zip" . -x ".git/*" "*/__pycache__/*" ".pytest_cache/*" "notes.md"
+          cp app/prebuilt/JARVIS.app.zip JARVIS.app.zip
       - uses: softprops/action-gh-release@v2
         if: steps.t.outputs.exists != 'true'
         with:
           tag_name: v${{ steps.v.outputs.version }}
           name: JARVIS ${{ steps.v.outputs.version }}
           body_path: notes.md
-          files: jarvis-hermes-${{ steps.v.outputs.version }}.zip
+          files: |
+            jarvis-hermes-${{ steps.v.outputs.version }}.zip
+            JARVIS.app.zip

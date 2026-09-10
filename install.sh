@@ -172,6 +172,8 @@ cp "$JARVIS_SRC/scripts/merge_config.py" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/setup_cron.sh" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/selftest.py" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/update.py" "$JARVIS_HOME/"
+cp "$JARVIS_SRC/scripts/doctor.py" "$JARVIS_HOME/"
+cp "$JARVIS_SRC/scripts/make_shortcuts.py" "$JARVIS_HOME/"
 cp -R "$JARVIS_SRC/app" "$JARVIS_HOME/app.src"   # исходник приложения строки меню (пересобирается при обновлении)
 cp "$JARVIS_SRC/VERSION" "$JARVIS_HOME/VERSION"
 [[ "$HERMES_HOME" == "$HOME/.hermes" ]] && rm -f "$HOME/.jarvis-home" || echo "$HERMES_HOME" > "$HOME/.jarvis-home"
@@ -235,8 +237,21 @@ fi
 # ─── 8b. JARVIS.app — приложение строки меню ─────────────────────────────
 if [[ $INSTALL_APP -eq 1 ]]; then
   step "JARVIS.app (строка меню: статус, HUD, голос, обновления)"
+  APP_PATH=""
   if command -v swiftc >/dev/null 2>&1; then
-    if APP_PATH="$(bash "$JARVIS_SRC/app/build.sh" "$HOME/Applications/JARVIS.app" 2>&1 | tail -1)" && [[ -d "$APP_PATH" ]]; then
+    APP_PATH="$(bash "$JARVIS_SRC/app/build.sh" "$HOME/Applications/JARVIS.app" 2>&1 | tail -1)" || APP_PATH=""
+  fi
+  if [[ ! -d "$APP_PATH" && -f "$JARVIS_SRC/app/prebuilt/JARVIS.app.zip" ]]; then
+    # готовая сборка из релиза (для тех, у кого нет Xcode CLT); ad-hoc подпись переставляем локально
+    mkdir -p "$HOME/Applications"; rm -rf "$HOME/Applications/JARVIS.app"
+    if ditto -x -k "$JARVIS_SRC/app/prebuilt/JARVIS.app.zip" "$HOME/Applications" 2>/dev/null && [[ -d "$HOME/Applications/JARVIS.app" ]]; then
+      xattr -dr com.apple.quarantine "$HOME/Applications/JARVIS.app" 2>/dev/null || true
+      codesign --force --deep --sign - "$HOME/Applications/JARVIS.app" >/dev/null 2>&1 || true
+      APP_PATH="$HOME/Applications/JARVIS.app"
+    fi
+  fi
+  if true; then
+    if [[ -d "$APP_PATH" ]]; then
       ok "$APP_PATH"
       if [[ $INSTALL_LAUNCHD -eq 1 ]]; then
         LA="$HOME/Library/LaunchAgents"; mkdir -p "$LA"
@@ -246,10 +261,8 @@ if [[ $INSTALL_APP -eq 1 ]]; then
       fi
       [[ "${JARVIS_QUIET:-0}" == "1" ]] || open -a "$APP_PATH" 2>/dev/null || true
     else
-      warn "не удалось собрать JARVIS.app (см. вывод выше) — всё остальное работает через команду jarvis"
+      warn "JARVIS.app не установлено (нет swiftc и нет готовой сборки app/prebuilt/). Всё работает через команду jarvis; приложение: xcode-select --install && jarvis app build"
     fi
-  else
-    warn "swiftc не найден — JARVIS.app пропущено. Установите Xcode CLT и выполните: bash app/build.sh"
   fi
 fi
 
@@ -265,6 +278,13 @@ if [[ "${JARVIS_QUIET:-0}" == "1" ]]; then echo "JARVIS $JARVIS_VERSION уста
 step "Провайдер LLM"
 if hermes config get model >/dev/null 2>&1 && [[ -n "$(hermes config get model 2>/dev/null | tr -d '[:space:]')" ]]; then
   ok "модель: $(hermes config get model 2>/dev/null)"
+  # Настроенная ≠ рабочая: короткий ping. Пустой ответ/ошибка провайдера — самая частая причина «ничего не работает».
+  printf "  ${CD}… проверяю, что модель отвечает${C0}\n"
+  PING="$(perl -e 'alarm 90; exec @ARGV' hermes chat -q 'Ответь одним словом: ok' 2>&1 | tail -c 400 || true)"  # perl alarm: в macOS нет timeout
+  if [[ -z "$PING" ]] || echo "$PING" | grep -qiE "error code|http [45][0-9][0-9]|traceback|\b(401|403|405|429)\b"; then
+    warn "модель настроена, но НЕ отвечает: ${PING:-пустой ответ}"
+    if [[ $ASSUME_YES -eq 0 ]] && ask "Открыть мастер выбора модели сейчас (рекомендую OpenRouter или Ollama)?"; then hermes model || true; fi
+  else ok "модель отвечает"; fi
 else
   warn "Модель не настроена. Сейчас откроется мастер — выберите провайдера (OpenRouter / Anthropic / OpenAI / Nous Portal / Ollama)."
   [[ $ASSUME_YES -eq 1 ]] || hermes model || true
@@ -272,12 +292,12 @@ fi
 
 # ─── 11. доктор ───────────────────────────────────────────────────────────
 step "Диагностика"
-hermes doctor 2>/dev/null | tail -n 25 || true
 if ! hermes plugins list 2>/dev/null | grep -qi jarvis-core; then
   hermes plugins enable jarvis-core jarvis-macos jarvis-brain >/dev/null 2>&1 && ok "плагины включены" \
     || warn "плагины не отображаются — выполните: hermes plugins enable jarvis-core jarvis-macos jarvis-brain"
 fi
 hermes plugins list 2>/dev/null | grep -i jarvis || true
+"$VENV_PY" "$JARVIS_HOME/doctor.py" --quick --fix 2>/dev/null || true
 
 # ─── итог ─────────────────────────────────────────────────────────────────
 cat <<EOF
@@ -297,7 +317,8 @@ ${CG} J.A.R.V.I.S. установлен.${C0}
    ${CB}jarvis hud${C0}        — открыть голографический HUD в браузере (http://127.0.0.1:8765)
    ${CB}jarvis gateway${C0}    — Telegram/Discord/WhatsApp + API для HUD
    ${CB}jarvis status${C0}     — состояние всех компонентов
-   ${CB}jarvis doctor${C0}     — диагностика
+   ${CB}jarvis doctor --fix${C0} — если что-то не работает: проверит и починит
+   ${CB}jarvis vault open${C0} — папка ~/JARVIS: кладите файлы и проекты, JARVIS их читает
 
  Документация: $JARVIS_SRC/docs/  (README.md → начните с него)
 ${CG}══════════════════════════════════════════════════════════════════════${C0}

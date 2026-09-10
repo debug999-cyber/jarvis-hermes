@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import schemas
 from .db import Brain, BrainError
+from .vault import Vault, VaultWatcher
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,15 @@ _cfg = {
     "log_failures": True,           # журнал сбоев инструментов → ночная самодиагностика
     "stt_vocabulary": True,         # имена из базы → подсказка распознаванию речи
     "voice_polish": True,           # для голосовых платформ убирать markdown из финального ответа
+    "vault_dir": "",                # хранилище файлов/проектов (пусто → ~/JARVIS)
+    "vault_context": True,          # фрагменты файлов из хранилища в контекст хода
+    "vault_scan_minutes": 10,       # фоновая переиндексация; 0 — выкл
 }
 _VOICE_PLATFORMS = {"voice", "voice_mode", "cli_voice", "discord_voice", "phone"}
 
 _brain: Brain | None = None
+_vault: Vault | None = None
+_vault_watcher: VaultWatcher | None = None
 _turn_tools: dict[str, set] = {}  # session_id → инструменты, вызванные в текущем ходе
 _CAPTURE_RE = re.compile(
     r"^\s*(?:jarvis[,!]?\s*|джарвис[,!]?\s*)?(?:запомни|запиши|remember|note that|заметь)[,:\s]+(.+)$",
@@ -81,6 +87,13 @@ def brain() -> Brain:
     return _brain
 
 
+def vault() -> Vault:
+    global _vault
+    if _vault is None:
+        _vault = Vault(brain(), _cfg.get("vault_dir") or None)
+    return _vault
+
+
 def _ok(**data) -> str:
     return json.dumps({"success": True, **data}, ensure_ascii=False, default=str)
 
@@ -106,7 +119,30 @@ def _hud(event: str, data: dict) -> None:
 
 # ══════════════════════════════ хуки ═══════════════════════════════════════
 
-def build_memory_context(user_message: str, is_first_turn: bool = False) -> str:
+_last_injected: dict[str, list[int]] = {}   # session_id → id заметок, подсказанных в прошлом ходе (для обратной связи)
+_FEEDBACK_NEG = re.compile(
+    r"^\s*(?:нет[,.!]?\s*)?(?:это\s+)?(?:не\s*(?:так|верно|правда|актуально)|неверно|неправда|ошиб|устарел|уже\s+не|больше\s+не|"
+    r"откуда\s+ты\s+взял|я\s+такого\s+не\s+говорил|wrong|incorrect|not\s+true|outdated)", re.I)
+_FEEDBACK_POS = re.compile(r"^\s*(?:да[,.!]?\s*)?(?:всё\s+)?(?:верно|точно|правильно|так\s+и\s+есть|именно|correct|exactly|right)\b[.!]?\s*$", re.I)
+
+
+def apply_feedback(session_id: str, user_message: str) -> list[dict]:
+    """Если в прошлом ходе подсказали заметки, а пользователь ответил «это не так» / «верно» — двигаем уверенность."""
+    ids = _last_injected.get(session_id) or []
+    if not ids or not (user_message or "").strip():
+        return []
+    text = user_message.strip()
+    if _FEEDBACK_NEG.search(text):
+        res = brain().feedback(ids, -0.3)
+        for r in res:
+            _hud("brain.update", {"action": "doubt", "id": r["id"], "content": f"уверенность ↓ {r['confidence']}: {r['content'][:90]}"})
+        return res
+    if _FEEDBACK_POS.match(text):
+        return brain().feedback(ids, +0.1)
+    return []
+
+
+def build_memory_context(user_message: str, is_first_turn: bool = False, session_id: str = "") -> str:
     """Короткий блок релевантных знаний для модели. Пусто — если нечего сказать."""
     parts: list[str] = []
     try:
@@ -117,14 +153,32 @@ def build_memory_context(user_message: str, is_first_turn: bool = False) -> str:
                 parts.append(f"Вчера/последний день ({eps[0]['day']}): {eps[0]['summary'][:300]}")
         hits = b.recall(user_message, limit=_cfg["context_limit"], touch=True) if (user_message or "").strip() else []
         hits = [h for h in hits if h["score"] >= _cfg["min_score"]]
+        if session_id:
+            _last_injected[session_id] = [h["id"] for h in hits]
+            if len(_last_injected) > 200:
+                for old in list(_last_injected)[:100]:
+                    _last_injected.pop(old, None)
         for h in hits:
             ent = f" ({h['entity']})" if h.get("entity") else ""
             parts.append(f"- #{h['id']} [{h['kind']}]{ent} {h['content']}")
     except Exception as e:
         logger.debug("brain context failed: %s", e)
-    if not parts:
+    files: list[str] = []
+    if _cfg.get("vault_context", True) and len((user_message or "").split()) >= 3:
+        try:
+            for h in vault().search(user_message, limit=3):
+                if h["score"] >= 1.0 or h["score"] == 0.0:
+                    files.append(f"- {h['rel']}:{h['line']} — {h['snippet'][:200]}")
+        except Exception as e:
+            logger.debug("vault context failed: %s", e)
+    if not parts and not files:
         return ""
-    return "[JARVIS memory] Что уже известно по теме (используй, не переспрашивай; поправь через brain_forget, если устарело):\n" + "\n".join(parts)
+    out = ""
+    if parts:
+        out += "[JARVIS memory] Что уже известно по теме (используй, не переспрашивай; поправь через brain_forget, если устарело):\n" + "\n".join(parts)
+    if files:
+        out += ("\n" if out else "") + "[JARVIS vault] Похожие места в файлах пользователя (полный текст — vault_read/read_file по пути):\n" + "\n".join(files)
+    return out
 
 
 def hook_pre_llm_call(session_id: str = "", user_message: str = "", is_first_turn: bool = False, **kwargs):
@@ -134,7 +188,15 @@ def hook_pre_llm_call(session_id: str = "", user_message: str = "", is_first_tur
     _turn_tools[session_id] = set()
     if not _cfg.get("inject_context", True):
         return None
-    ctx = build_memory_context(user_message, is_first_turn)
+    try:
+        fb = apply_feedback(session_id, user_message)  # реакция на подсказки прошлого хода — до нового поиска
+    except Exception as e:
+        logger.debug("feedback: %s", e)
+        fb = []
+    ctx = build_memory_context(user_message, is_first_turn, session_id=session_id)
+    if fb and any(r["confidence"] < 0.6 for r in fb):
+        ctx = (ctx + "\n" if ctx else "") + ("[JARVIS memory] Пользователь опроверг подсказку из памяти — уточни, что верно, "
+                                            "и исправь заметку (brain_forget + brain_remember или brain_remember с supersede).")
     return {"context": ctx} if ctx else None
 
 
@@ -410,6 +472,60 @@ NIGHTLY_PROMPT = (
 )
 
 
+# ══════════════════════════════ Vault: файлы и проекты ═════════════════════
+
+def tool_vault_search(args: dict, **kwargs) -> str:
+    try:
+        hits = vault().search(args.get("query", ""), limit=int(args.get("limit") or 8), prefix=args.get("in"))
+        if not hits:
+            st = vault().stats()
+            hint = ("хранилище пустое — положите файлы в " + st["root"] + " или подключите проект: vault_manage add"
+                    if not st["files"] else "попробуйте другие слова или vault_manage list")
+            return _ok(results=[], hint=hint)
+        return _ok(results=hits, hint="Читай нужный файл: vault_read(path) или read_file(path); правь обычными инструментами.")
+    except Exception as e:
+        return _err(f"vault: {e}")
+
+
+def tool_vault_read(args: dict, **kwargs) -> str:
+    try:
+        res = vault().read(args.get("path", ""), offset=int(args.get("offset") or 0), limit=int(args.get("limit") or 6000))
+        return _err(res["error"], path=res.get("path")) if res.get("error") else _ok(**res)
+    except Exception as e:
+        return _err(f"vault: {e}")
+
+
+def tool_vault_manage(args: dict, **kwargs) -> str:
+    a = args.get("action") or "status"
+    v = vault()
+    try:
+        if a == "status":
+            return _ok(**v.stats())
+        if a == "list":
+            return _ok(files=v.list_files(args.get("prefix"), recent=bool(args.get("recent"))))
+        if a == "tree":
+            return _ok(root=str(v.root), tree=v.tree(Path(args["path"]).expanduser() if args.get("path") else None, depth=int(args.get("depth") or 2)))
+        if a == "add":
+            if not args.get("path"):
+                return _err("Нужен path существующей папки")
+            res = v.add_source(args["path"], args.get("name"))
+            st = v.reindex()
+            _hud("vault.update", {"action": "add", "name": res["name"], "indexed": st["indexed"]})
+            return _ok(**res, indexed=st["indexed"])
+        if a == "remove":
+            if not args.get("name"):
+                return _err("Нужен name (как в projects/)")
+            return _ok(**v.remove_source(args["name"]))
+        if a == "reindex":
+            v.ensure_layout()
+            st = v.reindex(force=True)
+            _hud("vault.update", {"action": "reindex", **{k: st[k] for k in ("indexed", "removed")}})
+            return _ok(**st)
+        return _err(f"Неизвестное действие {a}")
+    except (OSError, ValueError) as e:
+        return _err(str(e))
+
+
 # ══════════════════════════════ регистрация ════════════════════════════════
 
 def register(ctx) -> None:
@@ -432,6 +548,9 @@ def register(ctx) -> None:
             logger.debug("hook %s недоступен: %s", name, e)
 
     for schema, handler in (
+        (schemas.VAULT_SEARCH, tool_vault_search),
+        (schemas.VAULT_READ, tool_vault_read),
+        (schemas.VAULT_MANAGE, tool_vault_manage),
         (schemas.BRAIN_REMEMBER, tool_brain_remember),
         (schemas.BRAIN_RECALL, tool_brain_recall),
         (schemas.BRAIN_FORGET, tool_brain_forget),
@@ -441,6 +560,19 @@ def register(ctx) -> None:
         (schemas.BRAIN_HISTORY, tool_brain_history),
     ):
         ctx.register_tool(name=schema["name"], toolset=TOOLSET, schema=schema, handler=handler)
+
+    # хранилище файлов: создать ~/JARVIS и запустить фоновую индексацию
+    global _vault_watcher
+    try:
+        v = vault()
+        v.ensure_layout()
+        minutes = int(_cfg.get("vault_scan_minutes") or 0)
+        if minutes > 0 and _vault_watcher is None:
+            _vault_watcher = VaultWatcher(v, interval_min=minutes,
+                                          on_change=lambda st: _hud("vault.update", {"action": "scan", "indexed": st["indexed"], "removed": st["removed"]}))
+            _vault_watcher.start()
+    except Exception as e:
+        logger.warning("vault недоступен: %s", e)
 
     if _SKILLS_DIR.exists():
         for child in sorted(_SKILLS_DIR.iterdir()):

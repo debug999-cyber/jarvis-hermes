@@ -689,6 +689,27 @@ class Brain:
             self._log(actor, "note_update", "notes", int(note_id), before, after)
             return after
 
+    def feedback(self, note_ids: list[int], delta: float, actor: str = "feedback") -> list[dict]:
+        """Обратная связь по подсказанным заметкам: пользователь подтвердил (+) или опроверг (−) → сдвигаем confidence.
+        Ниже 0.6 заметка получает тег verify — ночная ревизия спросит о ней или заархивирует."""
+        out = []
+        with self._lock:
+            for nid in note_ids:
+                row = self._row("notes", int(nid))
+                if not row or row["status"] != "active":
+                    continue
+                conf = max(0.0, min(1.0, float(row["confidence"]) + delta))
+                tags = set(filter(None, (row["tags"] or "").split(",")))
+                if conf < 0.6:
+                    tags.add("verify")
+                elif delta > 0:
+                    tags.discard("verify")
+                self._conn.execute("UPDATE notes SET confidence=?, tags=?, updated_at=? WHERE id=?", (conf, ",".join(sorted(tags)), now(), nid))
+                self._log(actor, "feedback", "notes", nid, row, {"confidence": conf})
+                out.append({"id": nid, "confidence": round(conf, 2), "content": row["content"]})
+            self._conn.commit()
+        return out
+
     def forget(self, note_id: int, reason: str = "", actor: str = "agent") -> dict:
         """Мягкое удаление: заметка архивируется, история сохраняется."""
         with self._lock:

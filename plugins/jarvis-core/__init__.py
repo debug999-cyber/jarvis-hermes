@@ -29,6 +29,7 @@ from pathlib import Path
 
 from . import schemas, state
 from .hud_client import HudClient
+from .triggers import Triggers
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,8 @@ _SKILLS_DIR = Path(__file__).parent / "skills"
 
 _hud = HudClient()
 _cfg = {"user_name": "сэр", "city": "Zürich", "inject_context": True,
-        "watchdog": True, "battery_threshold": 20, "watch_calendar": False, "follow_focus": True}
+        "watchdog": True, "battery_threshold": 20, "watch_calendar": False, "follow_focus": True,
+        "triggers": True, "trigger_llm": True, "disk_min_gb": 20, "idle_return_min": 90, "screen_context": True}
 
 
 # ══════════════════════════════ контекст хода ══════════════════════════════
@@ -109,12 +111,55 @@ def _turn_source(session_id: str, user_message: str, kwargs: dict) -> tuple[str,
     return "user", text[:300]
 
 
+# ── контекст экрана: «что у меня на экране / посмотри сюда / что это за ошибка» → скриншот без лишнего вопроса ──
+_SCREEN_RE = re.compile(
+    r"(на\s+(моём\s+)?экране|на\s+мониторе|посмотри\s+(сюда|на\s+экран|что\s+тут|что\s+здесь)|глянь\s+(сюда|на\s+экран)|"
+    r"что\s+(тут|здесь|это)\s+(написано|за\s+ошибка|за\s+окно|происходит|открыто)|видишь\s+(это|экран|окно)|"
+    r"(прочитай|переведи|объясни|исправь)\s+(это|что\s+на\s+экране|текст\s+на\s+экране)|эт[ау]\s+ошибк[ау]\s+на\s+экране|"
+    r"what'?s\s+on\s+(my\s+)?screen|look\s+at\s+(my\s+)?screen|see\s+this)", re.I)
+
+
+def wants_screen(text: str) -> bool:
+    return bool(text) and bool(_SCREEN_RE.search(text))
+
+
+def capture_screen() -> str | None:
+    """Скриншот активного дисплея в $HERMES_HOME/cache/jarvis/screenshots (тот же каталог, что у mac_screenshot)."""
+    if sys.platform != "darwin":
+        return None
+    out_dir = Path(state.hermes_home()) / "cache" / "jarvis" / "screenshots"
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"context-{dt.datetime.now():%Y%m%d-%H%M%S}.png"
+        subprocess.run(["screencapture", "-x", str(path)], timeout=10, capture_output=True)
+        return str(path) if path.exists() else None
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def screen_context(user_message: str) -> str:
+    if not _cfg.get("screen_context", True) or not wants_screen(user_message):
+        return ""
+    path = capture_screen()
+    if not path:
+        return ("[JARVIS screen] Пользователь говорит о своём экране, но снять скриншот не удалось (нет права «Запись экрана»). "
+                "Попроси выдать право: Системные настройки → Конфиденциальность → Запись экрана → терминал, или jarvis selftest --fix.")
+    _hud.emit("panel.show", {"kind": "image", "title": "КОНТЕКСТ ЭКРАНА", "content": path, "position": "right", "ttl": 60})
+    return (f"[JARVIS screen] Пользователь говорит о своём экране. Скриншот уже снят: {path} — сразу вызови vision_analyze "
+            f"с этим путём (без вопроса «какой экран?») и отвечай по его содержимому. Активное приложение: {_frontmost() or '—'}.")
+
+
 def hook_pre_llm_call(session_id: str = "", user_message: str = "", is_first_turn: bool = False, **kwargs):
     source, text = _turn_source(session_id, user_message, kwargs)
     _hud.emit("turn.start", {"session": session_id, "text": text, "source": source})
     if not _cfg.get("inject_context", True):
         return None
-    return {"context": build_context()}
+    ctx = build_context()
+    if source == "user":
+        sc = screen_context(user_message)
+        if sc:
+            ctx += "\n" + sc
+    return {"context": ctx}
 
 
 def hook_post_llm_call(session_id: str = "", assistant_response: str = "", **kwargs):
@@ -326,9 +371,10 @@ class Watchdog:
     """
 
     def __init__(self, battery_threshold: int = 20, interval: int = 300, watch_calendar: bool = False, lead_min: int = 10,
-                 follow_focus: bool = True, meeting_prep=None):
+                 follow_focus: bool = True, meeting_prep=None, triggers: Triggers | None = None):
         self.battery_threshold = battery_threshold
         self.interval = interval
+        self.triggers = triggers  # событийная проактивность (triggers.py); тикает в том же цикле
         self.watch_calendar = watch_calendar
         self.lead_min = lead_min
         self.follow_focus = follow_focus
@@ -345,9 +391,17 @@ class Watchdog:
         self._stop.set()
 
     def _loop(self) -> None:
-        while not self._stop.wait(self.interval):
+        # триггеры — каждые 60 с (дёшево, без LLM), остальное — раз в interval
+        step = min(60, self.interval)
+        elapsed = self.interval  # первый полный tick сразу
+        while not self._stop.wait(step):
+            elapsed += step
             try:
-                self.tick()
+                if self.triggers:
+                    self.triggers.tick(battery=self.battery_state())
+                if elapsed >= self.interval:
+                    elapsed = 0
+                    self.tick()
             except Exception as e:
                 logger.debug("watchdog: %s", e)
 
@@ -504,7 +558,8 @@ BRIEF_PROMPT = (
 
 def register(ctx) -> None:
     # настройки
-    for key in ("hud_url", "user_name", "city", "inject_context", "watchdog", "battery_threshold", "watch_calendar", "follow_focus"):
+    for key in ("hud_url", "user_name", "city", "inject_context", "watchdog", "battery_threshold", "watch_calendar", "follow_focus",
+                "triggers", "trigger_llm", "disk_min_gb", "idle_return_min", "screen_context"):
         try:
             val = ctx.get_config(key, default=None)
         except Exception:
@@ -586,10 +641,15 @@ def register(ctx) -> None:
     # локальный watchdog (батарея, календарь) — без вызовов LLM
     global _watchdog
     if _cfg.get("watchdog", True) and _watchdog is None:
+        trig = None
+        if _cfg.get("triggers", True):
+            trig = Triggers(state_file=state._path().parent / "triggers.json",
+                            disk_min_gb=int(_cfg.get("disk_min_gb") or 20), idle_min=int(_cfg.get("idle_return_min") or 90),
+                            llm=bool(_cfg.get("trigger_llm", True)), notify=Watchdog.notify, emit=_hud.emit, get_mode=state.get_mode)
         _watchdog = Watchdog(battery_threshold=int(_cfg.get("battery_threshold") or 20),
                              watch_calendar=bool(_cfg.get("watch_calendar")),
                              follow_focus=bool(_cfg.get("follow_focus", True)),
-                             meeting_prep=meeting_prep_from_brain)
+                             meeting_prep=meeting_prep_from_brain, triggers=trig)
         _watchdog.start()
 
     _hud.emit("plugin.ready", {"name": "jarvis-core"})

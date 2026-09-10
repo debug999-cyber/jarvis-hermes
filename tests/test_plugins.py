@@ -315,3 +315,65 @@ def test_mac_type_rejects_unknown_modifiers(monkeypatch):
     assert out["success"] is False and "модификатор" in out["error"] and not sent
     out = json.loads(macos.tools.mac_type({"action": "keystroke", "text": "a", "modifiers": ["cmd", "Shift"]}))
     assert out["success"] is True and sent[-1].endswith("using {command down, shift down}")
+
+
+def test_triggers_inbox_return_and_quiet(tmp_path, monkeypatch):
+    core = load_plugin("jarvis-core")
+    vault = tmp_path / "JARVIS"; (vault / "inbox").mkdir(parents=True)
+    notes, emits, prompts = [], [], []
+    mode = {"m": "normal"}
+    tr = core.Triggers(state_file=tmp_path / "t.json", vault_root=vault, notify=lambda t, x: notes.append(x),
+                       emit=lambda e, d: emits.append((e, d)), get_mode=lambda: mode["m"],
+                       runner=lambda p: prompts.append(p) or "Это договор с Acme.")
+    monkeypatch.setattr(tr, "detect_disk", lambda now: [])
+    # первый тик — только запоминаем содержимое inbox, не шумим
+    (vault / "inbox" / "old.md").write_text("x")
+    assert tr.tick(now=1000.0, idle=0) == []
+    # новый файл → событие + модель
+    (vault / "inbox" / "договор.pdf").write_text("y")
+    assert tr.tick(now=1100.0, idle=0) == ["vault.inbox"]
+    import time as _t; _t.sleep(0.05)
+    assert prompts and "договор.pdf" in prompts[0] and "Это договор с Acme." in notes[-1]
+    # cooldown: ещё файл через минуту — событие есть, модель не зовём
+    (vault / "inbox" / "ещё.txt").write_text("z")
+    assert tr.tick(now=1160.0, idle=0) == ["vault.inbox"] and len(prompts) == 1
+    # возвращение утром → брифинг (после cooldown)
+    import datetime as dt
+    morning = dt.datetime(2026, 9, 10, 8, 30).timestamp()
+    assert tr.tick(now=morning, idle=100 * 60) == []          # ушёл
+    assert tr.tick(now=morning + 5, idle=1) == ["user.returned"]
+    _t.sleep(0.05); assert "брифинг" in prompts[-1]
+    # в режиме focus не-срочное подавляется
+    mode["m"] = "focus"
+    (vault / "inbox" / "n3.txt").write_text("q")
+    assert tr.tick(now=morning + 4000, idle=0) == []
+    # power: отключили при 25 % → уведомление без LLM
+    mode["m"] = "normal"; n0 = len(prompts)
+    tr.tick(battery=(25, True), now=morning + 5000, idle=0)
+    assert tr.tick(battery=(25, False), now=morning + 5060, idle=0) == ["power.unplugged"]
+    assert len(prompts) == n0 and any("Питание" in n for n in notes)
+    # состояние переживает рестарт: новый объект не считает старые файлы новыми
+    tr2 = core.Triggers(state_file=tmp_path / "t.json", vault_root=vault, notify=lambda t, x: None, emit=lambda e, d: None, runner=lambda p: None)
+    monkeypatch.setattr(tr2, "detect_disk", lambda now: [])
+    assert tr2.tick(now=morning + 9000, idle=0) == []
+
+
+def test_screen_context_detects_phrases_and_injects(monkeypatch):
+    core = load_plugin("jarvis-core")
+    for ok in ("что у меня на экране?", "посмотри сюда, что это за ошибка на экране", "Jarvis, переведи текст на экране", "what's on my screen"):
+        assert core.wants_screen(ok), ok
+    for no in ("какая погода", "открой экранную клавиатуру", "запомни, что экран монитора 27 дюймов"):
+        assert not core.wants_screen(no), no
+    monkeypatch.setattr(core, "capture_screen", lambda: "/tmp/shot.png")
+    emitted = []
+    monkeypatch.setattr(core._hud, "emit", lambda e, d=None: emitted.append((e, d)) or True)
+    out = core.hook_pre_llm_call(session_id="s", user_message="глянь на экран, что тут написано?")
+    assert "[JARVIS screen]" in out["context"] and "/tmp/shot.png" in out["context"] and "vision_analyze" in out["context"]
+    assert any(e == "panel.show" for e, _ in emitted)
+    # без права на запись экрана — объясняем, как выдать
+    monkeypatch.setattr(core, "capture_screen", lambda: None)
+    out = core.hook_pre_llm_call(session_id="s", user_message="что на экране?")
+    assert "Запись экрана" in out["context"]
+    # cron-ход никогда не снимает экран
+    out = core.hook_pre_llm_call(session_id="cron_1", user_message="что на экране?")
+    assert "[JARVIS screen]" not in out["context"]

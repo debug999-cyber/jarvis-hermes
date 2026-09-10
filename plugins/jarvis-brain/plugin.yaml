@@ -15,6 +15,9 @@ provides_tools:
   - brain_review
   - brain_reflect
   - brain_history
+  - vault_search
+  - vault_read
+  - vault_manage
 
 provides_hooks:
   - pre_llm_call
@@ -69,3 +72,15 @@ config_schema:
     type: bool
     default: true
     description: "Для голосовых платформ убирать markdown и ужимать финальный ответ до 4 предложений"
+  vault_dir:
+    type: str
+    default: ""
+    description: "Папка хранилища файлов и проектов (пусто → ~/JARVIS)"
+  vault_context:
+    type: bool
+    default: true
+    description: "Подмешивать релевантные фрагменты файлов из хранилища в контекст хода"
+  vault_scan_minutes:
+    type: int
+    default: 10
+    description: "Как часто переиндексировать хранилище в фоне (минуты); 0 — только вручную"

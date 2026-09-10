@@ -408,7 +408,7 @@
     const k = dash.brain, b = $('#knowBody');
     if (!k) { b.innerHTML = '<div class="empty">База знаний пока пуста.<br>Скажите <b>«запомни…»</b> — JARVIS начнёт её вести.</div>'; return; }
     const total = k.notes + k.pending, pct = total ? Math.round(k.notes/total*100) : 100;
-    b.innerHTML = `<div class="stats"><div class="stat"><small>Заметки</small><b>${k.notes}</b></div><div class="stat"><small>Карточки</small><b>${k.cards}</b></div></div>
+    b.innerHTML = `<div class="stats"><div class="stat"><small>Заметки</small><b>${k.notes}</b></div><div class="stat"><small>Карточки</small><b>${k.cards}</b></div><div class="stat" title="Файлы и проекты в ~/JARVIS"><small>Файлы</small><b>${k.files ?? 0}</b></div></div>
       <div class="kbase"><div class="l"><span>Обработано</span><b>${pct}%</b></div><div class="prog"><i style="width:${pct}%"></i></div></div>`;
   }
   function renderSystem(){
@@ -460,7 +460,8 @@
       const list = (b.search || b.recent).map(n=>`<li><span class="muted" style="font-size:12px">${esc(n.kind)}${n.entity?' · '+esc(n.entity):''}</span><br>${esc(n.content)}</li>`).join('') || '<li class="muted">Ничего не найдено</li>';
       const ents = b.top_entities.map(e=>`<span class="tag">${esc(e.name)}<b>${e.notes}</b></span>`).join('');
       const diary = b.diary.map(d=>`<li><b>${esc(d.day)}</b> — ${esc(d.summary)}</li>`).join('');
-      body = search + `<div class="sec">${q?'Результаты':'Недавнее'}</div><ul>${list}</ul>` + (ents?`<div class="sec">Карточки</div>${ents}`:'') + (diary?`<div class="sec">Дневник</div><ul>${diary}</ul>`:'') +
+      const vault = b.vault ? `<div class="sec">Хранилище файлов · ${b.vault.files}</div>` + (b.vault.sources.length?b.vault.sources.map(s=>`<span class="tag">${esc(s.name)}</span>`).join(''):'') + (b.vault.recent.length?`<ul>${b.vault.recent.map(f=>`<li class="muted" style="font-size:12px">${esc(f.rel)}</li>`).join('')}</ul>`:'<div class="muted" style="font-size:12px">Пусто — положите файлы в ~/JARVIS или <code>jarvis vault add ~/Projects/…</code></div>') : '';
+      body = search + `<div class="sec">${q?'Результаты':'Недавнее'}</div><ul>${list}</ul>` + (ents?`<div class="sec">Карточки</div>${ents}`:'') + vault + (diary?`<div class="sec">Дневник</div><ul>${diary}</ul>`:'') +
         `<div class="sec">Статус</div><div class="kv"><span>Заметок · карточек · дней</span><b>${b.notes} · ${b.entities} · ${b.episodes}</b></div><div class="kv"><span>Последняя ревизия</span><b>${b.last_review? esc(b.last_review.finished_at.slice(0,16).replace('T',' ')) : 'ещё не было'}</b></div>`;
     }
     card('brain', {title: 'База знаний', icon:'<svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v16H6.5A2.5 2.5 0 0 0 4 21z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v16h5.5a2.5 2.5 0 0 1 2.5 2z"/></svg>', html: body});
@@ -511,7 +512,7 @@
       lastReply = txt; if (!streamBuf && d.text) reply.innerHTML = mdLite(d.text);
       log('ok', `ответ · ${esc(txt.slice(0,90))}`); speak(txt);
     });
-    on('speech.stop', () => { speechSynthesis.cancel(); if (state==='speaking') setState('idle'); });
+    on('speech.stop', () => { stopAudio(); if (state==='speaking') setState('idle'); });
     on('tool.start', d => { setState('thinking', {mac_calendar:'Смотрю календарь…', brain_recall:'Вспоминаю…', web_search:'Ищу в интернете…', terminal:'Выполняю команду…'}[d.tool] || `${d.tool}…`); log('tool', `${esc(d.tool)}<small>${esc(d.args||'')}</small>`); });
     on('tool.end', d => log(d.ok?'':'err', `${d.ok?'✓':'✗'} ${esc(d.tool)}`));
     on('session.start', d => { if (!(d.session||'').startsWith('cron')) log('', `сессия · ${esc(d.platform||'')}`); });
@@ -524,6 +525,7 @@
     on('alert', d => { log('err', `${esc(d.kind||'alert')} · ${esc(d.text||'')}`); if (d.kind==='update') { $('#updChip').classList.add('show'); return; } toast(d.text||'', d.kind==='battery'?'batt':d.kind==='calendar'?'cal':'bell', d.kind==='battery'?'amber':'cyan', 20); });
     on('brain.update', d => log('', `память · ${esc(d.content||'')}`));
     on('brain.stats', () => loadDash());
+    on('vault.update', d => { log('', `хранилище · ${d.action==='add'?'подключён проект '+esc(d.name||''):'проиндексировано '+(d.indexed||0)}`); loadDash(); });
     on('hud.online', () => {});
   }
   function setStatus(sse){ const st=$('#status'); const api = !!(dash.hermes_up); st.className = 'status ' + (sse && api ? 'on' : sse ? '' : 'off'); $('#statusTx').textContent = !sse ? 'Нет связи с HUD' : api ? 'Online' : 'Hermes API выключен'; }
@@ -557,7 +559,7 @@
     finally { chatting = false; chatAbort = null; }
   }
   // Полная остановка: озвучка браузера, системный say/afplay (через сервер), текущий запрос.
-  function stopAll(){ speechSynthesis.cancel(); if (chatAbort) chatAbort.abort(); fetch('/api/hush', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).catch(()=>{}); setState('idle'); }
+  function stopAll(){ stopAudio(); if (chatAbort) chatAbort.abort(); fetch('/api/hush', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}).catch(()=>{}); setState('idle'); }
   $('#stopBtn').onclick = stopAll;
   input.addEventListener('keydown', e => { if (e.key==='Enter') { e.preventDefault(); send(); } });
   mainBtn.onclick = () => { if (input.value.trim()) send(); else toggleListen(); };
@@ -581,13 +583,30 @@
   orb.onclick = toggleListen;
 
   let ttsOn = localStorage.getItem('jarvis.tts')==='1'; $('#ttsBtn').classList.toggle('active', ttsOn);
-  $('#ttsBtn').onclick = () => { ttsOn = !ttsOn; localStorage.setItem('jarvis.tts', ttsOn?'1':'0'); $('#ttsBtn').classList.toggle('active', ttsOn); if (!ttsOn) speechSynthesis.cancel(); };
+  $('#ttsBtn').onclick = () => { ttsOn = !ttsOn; localStorage.setItem('jarvis.tts', ttsOn?'1':'0'); $('#ttsBtn').classList.toggle('active', ttsOn); if (!ttsOn) stopAudio(); };
   let lastSpoken = '';
-  function speak(text){
-    if (!ttsOn || !('speechSynthesis' in window) || !text || text === lastSpoken) return;
-    lastSpoken = text; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text.replace(/[*_`#]/g,'').slice(0,1200)); u.lang='ru-RU'; u.rate=1.02;
+  // Озвучка: сначала сервер (/api/tts → edge-tts, голос как в voice mode Hermes), при 204/ошибке — браузерный синтез.
+  let audioEl = null, ttsAbort = null;
+  function stopAudio(){ if (ttsAbort) { ttsAbort.abort(); ttsAbort = null; } if (audioEl) { audioEl.pause(); audioEl.src = ''; audioEl = null; } speechSynthesis.cancel(); }
+  function speakBrowser(text){
+    if (!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text.replace(/[*_`#]/g,'').slice(0,1200)); u.lang='ru-RU'; u.rate=1.02;
     const v = speechSynthesis.getVoices().find(v=>/ru/i.test(v.lang) && /Milena|Yuri|Google/i.test(v.name)) || speechSynthesis.getVoices().find(v=>/ru/i.test(v.lang)); if (v) u.voice=v;
     u.onstart = () => setState('speaking'); u.onend = () => setState('idle'); speechSynthesis.speak(u);
+  }
+  async function speak(text){
+    if (!ttsOn || !text || text === lastSpoken) return;
+    lastSpoken = text; stopAudio();
+    try {
+      ttsAbort = new AbortController();
+      const r = await fetch('/api/tts', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({text}), signal: ttsAbort.signal});
+      if (r.status === 200) {
+        const url = URL.createObjectURL(await r.blob());
+        audioEl = new Audio(url); audioEl.onplay = () => setState('speaking'); audioEl.onended = audioEl.onerror = () => { URL.revokeObjectURL(url); if (state==='speaking') setState('idle'); };
+        await audioEl.play(); return;
+      }
+    } catch (e) { if (e.name === 'AbortError') return; }
+    speakBrowser(text);
   }
 
   // ───────────────────────── клавиши ─────────────────────────

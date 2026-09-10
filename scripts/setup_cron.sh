@@ -17,8 +17,9 @@ mk "JARVIS: ночная ревизия базы знаний" "every day at 03:
    "Проведи ночную ревизию базы знаний по навыку brain-nightly-review: brain_review maintain → digest_queue/save_episode → plan → apply → export → finish. Если изменений нет — ответь ровно: [SILENT]" "brain-nightly-review"
 mk "JARVIS: синхронизация памяти" "every sunday at 20:00" \
    "1) brain_review profile — получи самое важное из базы знаний. 2) Сравни со встроенной памятью (memory: USER.md/MEMORY.md): факты из памяти, которых нет в базе — перенеси через brain_remember; устаревшее в памяти удали; убедись, что в USER.md есть 10–15 самых важных пунктов профиля (importance ≥4) — не больше. Отчитайся в двух предложениях."
+# С 1.8 основную проактивность делают локальные триггеры jarvis-core (события, без LLM); cron-heartbeat остаётся редкой страховкой
 if [[ "${JARVIS_HEARTBEAT:-1}" == "1" ]]; then
-  mk "JARVIS: heartbeat" "every 45 minutes" \
+  mk "JARVIS: heartbeat" "every 3 hours" \
      "Heartbeat. Прочитай ~/.hermes/jarvis/HEARTBEAT.md и действуй по навыку jarvis/heartbeat. Если ничего не требует внимания — ответь ровно: NO_REPLY" "jarvis/heartbeat"
 fi
 # Старая LLM-задача контроля батареи больше не нужна — её заменил локальный watchdog jarvis-core

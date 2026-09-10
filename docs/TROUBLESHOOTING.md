@@ -2,11 +2,18 @@
 
 Первое, что стоит запустить при любой проблеме:
 ```bash
-jarvis doctor            # hermes doctor + проверка плагинов
+jarvis doctor --fix      # 10 проверок (модель отвечает? плагины, API, gateway, HUD, launchd, права, хранилище, версия) + автопочинка
+jarvis doctor --quick    # то же без ping модели и selftest прав (2 секунды)
 jarvis status            # что запущено
 hermes logs --follow     # живой лог агента (ошибки плагинов тоже здесь)
 jarvis hud log           # лог HUD
 ```
+
+## Что чинит `doctor --fix` сам
+- нет `API_SERVER_ENABLED`/`API_SERVER_KEY` в `.env` → допишет (затем `jarvis gateway restart && jarvis hud restart`);
+- плагины не включены → `hermes plugins enable …`; gateway/HUD не запущены → запустит; launchd-агенты выгружены → загрузит;
+- папки `~/JARVIS` нет → создаст; нет прав macOS → откроет нужные панели (`selftest --fix`).
+Что НЕ чинит: неверный ключ провайдера/пустой баланс (покажет ответ модели и предложит `hermes model`), права — их выдаёте вы.
 
 ## Установка
 

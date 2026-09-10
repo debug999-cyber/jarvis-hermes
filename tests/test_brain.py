@@ -14,7 +14,9 @@ def brain(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_BRAIN_DIR", str(tmp_path))
     mod = load_plugin("jarvis-brain")
     mod._brain = None  # свежая БД на каждый тест
+    mod._vault = None
     yield mod
+    mod._vault = None
     if mod._brain:
         mod._brain.close()
         mod._brain = None
@@ -27,7 +29,8 @@ def _j(s: str) -> dict:
 def test_register(brain):
     ctx = FakeCtx()
     brain.register(ctx)
-    assert {"brain_remember", "brain_recall", "brain_forget", "brain_entity", "brain_review", "brain_reflect", "brain_history"} == set(ctx.tools)
+    assert {"brain_remember", "brain_recall", "brain_forget", "brain_entity", "brain_review", "brain_reflect", "brain_history",
+            "vault_search", "vault_read", "vault_manage"} == set(ctx.tools)
     assert {"pre_llm_call", "post_llm_call", "pre_tool_call"} <= set(ctx.hooks)
     assert {"remember", "recall", "brain"} <= set(ctx.commands)
     assert "brain-nightly-review" in ctx.skills
@@ -299,3 +302,19 @@ def test_schema_migration_from_v1(tmp_path, monkeypatch):
     assert b._conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "2"
     assert b.get_note(1)["valid_from"] == "2025-01-01T00:00:00"
     b.close()
+
+
+def test_memory_feedback_lowers_confidence(brain):
+    plug, b = brain, brain.brain()
+    n = b.remember("Пользователь пьёт кофе без сахара", kind="preference", importance=4)
+    plug.hook_pre_llm_call(session_id="s1", user_message="какой кофе я люблю без сахара?")
+    assert n["id"] in plug._last_injected["s1"]
+    # «это не так» → уверенность падает, появляется просьба уточнить
+    out = plug.hook_pre_llm_call(session_id="s1", user_message="Нет, это не так — я давно пью с сахаром")
+    note = b.get_note(n["id"])
+    assert note["confidence"] < 0.6 and "verify" in note["tags"]
+    assert "опроверг" in (out or {}).get("context", "")
+    # подтверждение возвращает доверие
+    plug._last_injected["s1"] = [n["id"]]
+    plug.hook_pre_llm_call(session_id="s1", user_message="верно")
+    assert b.get_note(n["id"])["confidence"] > note["confidence"]
