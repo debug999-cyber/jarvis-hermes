@@ -99,6 +99,16 @@ if [[ $INSTALL_BREW_TOOLS -eq 1 ]]; then
       printf "  ${CD}… устанавливаю %s${C0}\n" "$p"; brew install "$p" >/dev/null 2>&1 && ok "$p" || warn "не удалось установить $p (не критично)"
     fi
   done
+  # Нативные CLI с GitHub вместо AppleScript (принцип «сначала GitHub»): календарь, напоминания, окна/скриншоты.
+  # Без них JARVIS работает по-старому через AppleScript; с ними — быстрее и без диалогов «Автоматизация».
+  NATIVE=("BRO3886/tap/ical" "steipete/tap/remindctl" "steipete/tap/peekaboo")
+  for f in "${NATIVE[@]}"; do
+    name="${f##*/}"
+    if command -v "$name" >/dev/null 2>&1 || brew list --formula "$name" >/dev/null 2>&1; then ok "$name"; else
+      printf "  ${CD}… устанавливаю %s (GitHub: %s)${C0}\n" "$name" "$f"
+      brew install "$f" >/dev/null 2>&1 && ok "$name" || warn "не удалось установить $name (не критично; peekaboo требует macOS 15+)"
+    fi
+  done
 fi
 
 # ─── 2. Hermes Agent ──────────────────────────────────────────────────────

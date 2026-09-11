@@ -9,7 +9,7 @@ authors:
 repository-code: "https://github.com/debug999-cyber/jarvis-hermes"
 url: "https://github.com/debug999-cyber/jarvis-hermes"
 license: MIT
-version: "1.8.2"
+version: "1.9.0"
 date-released: "2026-09-10"
 abstract: "Personal voice AI assistant for macOS built on Hermes Agent: Mac control, holographic HUD, structured knowledge base, file/project vault, menu-bar app with auto-update."
 keywords: [jarvis, assistant, macos, hermes-agent, voice, hud, knowledge-base]

@@ -282,6 +282,32 @@ def check_permissions(fix: bool) -> Check:
     return c.ok(f"все {len(rows)} интеграции работают")
 
 
+NATIVE_CLI = {  # инструмент → (что даёт, как поставить)
+    "ical": ("календарь через EventKit", "brew install BRO3886/tap/ical"),
+    "remindctl": ("напоминания через EventKit", "brew install steipete/tap/remindctl"),
+    "peekaboo": ("окна и скриншоты через Accessibility", "brew install steipete/tap/peekaboo  (macOS 15+)"),
+}
+
+
+def check_native_cli(fix: bool) -> Check:
+    """Готовые CLI с GitHub, которыми jarvis-macos заменяет AppleScript. Без них всё работает, но медленнее."""
+    c = Check("Нативные CLI")
+    if not IS_MAC:
+        return c.skip("не macOS")
+    path = f"{BIN}:/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "")
+    missing = [n for n in NATIVE_CLI if not shutil.which(n, path=path)]
+    if missing and fix and shutil.which("brew", path=path):
+        for n in list(missing):
+            code, _ = sh(["brew", "install", NATIVE_CLI[n][1].split()[2]], timeout=600)
+            if code == 0:
+                missing.remove(n)
+        c.fixed = bool(set(NATIVE_CLI) - set(missing))
+    if missing:
+        hint = "; ".join(NATIVE_CLI[n][1] for n in missing)
+        return c.warn("нет: " + ", ".join(missing) + " — AppleScript-запасной путь", hint)
+    return c.ok("ical, remindctl, peekaboo установлены")
+
+
 def check_vault(fix: bool) -> Check:
     c = Check("Хранилище ~/JARVIS")
     vault_py = HERMES_HOME / "plugins" / "jarvis-brain" / "vault.py"
@@ -340,6 +366,7 @@ def run(fix: bool, ping_model: bool, quick: bool) -> list[Check]:
     checks.append(check_launchd(fix))
     if not quick:
         checks.append(check_permissions(fix))
+    checks.append(check_native_cli(fix))
     checks.append(check_vault(fix))
     checks.append(check_version(fix))
     return checks

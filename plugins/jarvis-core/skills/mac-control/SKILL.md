@@ -37,6 +37,12 @@ metadata:
 | быстрая команда | `mac_shortcut` |
 | всё остальное про Mac | `terminal` (безопасные команды) или `mac_applescript` (если включён) |
 
+## Backends
+`mac_calendar`, `mac_reminders`, `mac_window`, `mac_screenshot` сначала используют готовые CLI с GitHub
+(`ical`, `remindctl`, `peekaboo` — EventKit/Accessibility, JSON, быстро), а без них — AppleScript. Поле `backend`
+в ответе показывает путь. Если backend = applescript и пользователь жалуется на медленность/диалоги «Автоматизация» —
+предложи `jarvis doctor --fix` (поставит CLI через brew).
+
 ## Procedure
 1. Выбери самый специализированный инструмент из таблицы. `terminal` — только если ничего не подходит.
 2. Для необратимых действий (выключение, очистка корзины, удаление файлов) — сначала `clarify`/переспроси.

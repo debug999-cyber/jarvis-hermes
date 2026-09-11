@@ -4,6 +4,23 @@
 Подробный разбор идей — в [RESEARCH.md](RESEARCH.md); здесь — только адрес → что взято.
 Код ни из одного стороннего проекта не копировался: заимствованы идеи, форматы и приёмы.
 
+## 0. Аудит «своё → готовое» (1.9.0)
+
+Полная таблица — [AUDIT.md](AUDIT.md). Источники этого прохода:
+
+| Источник | Что взято |
+|---|---|
+| https://github.com/BRO3886/ical | `ical list/add -o json` (EventKit) → бэкенд `mac_calendar`; формат полей `start_date/end_date/all_day/calendar` |
+| https://github.com/openclaw/remindctl | `remindctl open/add/search/complete --json` → бэкенд `mac_reminders` (тот же CLI, что в навыке Hermes `apple-reminders`) |
+| https://github.com/openclaw/Peekaboo | `peekaboo see --no-elements --mode …`, `window list/set-bounds/minimize --app … --json` → бэкенды `mac_screenshot`/`mac_window` |
+| https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers | 9 провайдеров памяти Hermes (holographic/mem0/hindsight/openviking…) — план замены части `jarvis-brain` (1.10) |
+| https://hermes-agent.nousresearch.com/docs/user-guide/features/extending-the-dashboard | Темы и плагины `hermes dashboard` — план темы JARVIS и вкладки Brain (1.10) |
+| https://hermes-agent.nousresearch.com/docs/user-guide/profile-distributions | `distribution.yaml`, `hermes profile install/update` — план поставки JARVIS как дистрибутива профиля (1.10) |
+| https://hermes-agent.nousresearch.com/docs/user-guide/features/computer-use | `computer_use` toolset (cua-driver, фоновой режим) — замена `mac_type`/кликов (1.9.1) |
+| https://hermes-agent.nousresearch.com/docs/reference/skills-catalog | Бандл-навыки `apple/*` (`memo`, `remindctl`, `imsg`) и `weather` |
+| https://github.com/NousResearch/hermes-agent/tree/main/optional-mcps | Каталог MCP Hermes (`hermes mcp install …`) — проверено: Apple-приложений там нет, поэтому CLI-путь |
+| https://github.com/steipete/macos-automator-mcp | Резерв: MCP с 200+ рецептами AppleScript/JXA, если понадобится произвольная автоматизация вместо `mac_applescript` |
+
 ## 1. Hermes Agent — ядро, на котором всё построено
 
 | Источник | Что взято |

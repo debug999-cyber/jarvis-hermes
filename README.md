@@ -132,6 +132,7 @@ jarvis-hermes/
 | [docs/VAULT.md](docs/VAULT.md) | Хранилище файлов и проектов `~/JARVIS`: что индексируется, как агент этим пользуется, приватность |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Как устроено: Hermes ↔ плагины ↔ HUD, поток данных, схемы |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Как добавить свой инструмент/навык/хук, тесты, соглашения |
+| [docs/AUDIT.md](docs/AUDIT.md) | Аудит «своё → готовое»: что заменено проектами с GitHub, что в плане, что остаётся своим |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Типовые проблемы: микрофон, Accessibility, wake word, TTS, API |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | Исследование: какие проекты и статьи изучены и какие идеи из них взяты (подробно) |
 | [docs/SOURCES.md](docs/SOURCES.md) | Список источников: ссылка → что заимствовано |
@@ -162,7 +163,7 @@ jarvis-hermes/
 
 ## Статус
 
-**1.8.2 — стабильный релиз.** 115 автотестов + e2e HUD в браузере (Linux + macOS, Python 3.11/3.12), линтеры `ruff`/`shellcheck`
+**1.9.0 — стабильный релиз.** 119 автотестов + e2e HUD в браузере (Linux + macOS, Python 3.11/3.12), линтеры `ruff`/`shellcheck`
 и сборка JARVIS.app в CI на каждый коммит; в каждом релизе — готовое приложение; каждый релиз проходит smoke-тест updater'а с автоматическим откатом. Проверено на реальном Mac (macOS 26, M-серия):
 после `jarvis selftest` и выдачи прав работают все интеграции. Issue и PR приветствуются.
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.9.0 — принцип «сначала GitHub»: нативные CLI вместо AppleScript
+
+- **Новое правило разработки** (по требованию автора): перед любым своим кодом ищем готовое решение на GitHub и в Hermes;
+  зафиксировано в `docs/DEVELOPMENT.md` (Принцип №1) и в `SOUL.md` JARVIS. Полный аудит «своё → готовое» с планом замен — **`docs/AUDIT.md`**.
+- **Календарь, напоминания, окна и скриншоты — через готовые нативные CLI** (`plugins/jarvis-macos/native.py`):
+  `mac_calendar` → [BRO3886/ical](https://github.com/BRO3886/ical) (EventKit, JSON, в десятки раз быстрее AppleScript),
+  `mac_reminders` → [openclaw/remindctl](https://github.com/openclaw/remindctl) (тот же CLI, что в бандл-навыке Hermes),
+  `mac_window`/`mac_screenshot` → [openclaw/Peekaboo](https://github.com/openclaw/Peekaboo) (Accessibility, точный захват окна, macOS 15+).
+  Без этих утилит всё работает по-прежнему через AppleScript; поле `backend` в ответе показывает, какой путь сработал.
+- `install.sh` ставит `ical`, `remindctl`, `peekaboo` из brew-tap'ов; `jarvis doctor` показывает, чего не хватает, `--fix` доставляет.
+- Навык `mac-control` объясняет модели про бэкенды; `mac_window` компактнее (общая геометрия раскладок).
+- Тесты: +4 (нативные бэкенды с подменёнными CLI, откат на AppleScript, геометрия окон) — 116.
+
 ## 1.8.2 — авторство и пасхалки
 
 - **Авторство зафиксировано**: `LICENSE` (© 2026 ERTGYKI), раздел «Автор» в README (ru/en), `AUTHORS.md`, `CITATION.cff`

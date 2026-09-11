@@ -17,7 +17,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import mac
+from . import mac, native
 from .mac import MacError, as_str, json_err, json_ok, osascript, run, which
 
 # Настройки плагина подставляются из __init__.register() через configure()
@@ -433,6 +433,8 @@ def mac_screenshot(args: dict) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / mac.stamp("screen", "png")
     mode = args.get("mode") or "screen"
+    if native.screenshot(path, mode):  # peekaboo (если установлен): точный захват окна без AppleScript
+        return json_ok(path=str(path), backend="peekaboo", hint="Передайте path в vision_analyze, чтобы описать содержимое экрана")
     cmd = ["screencapture", "-x"]  # -x: без звука затвора
     if mode == "front_window":
         # Получаем id активного окна через JXA и снимаем его
@@ -505,23 +507,32 @@ def _events_for_day(day: dt.date) -> list[dict]:
     return events
 
 
+def _day_events(day: dt.date) -> tuple[list[dict], str]:
+    """Сначала нативный `ical` (EventKit, JSON), иначе AppleScript. Возвращает (события, backend)."""
+    native_events = native.calendar_events(day)
+    if native_events is not None:
+        return native_events, "ical"
+    return _events_for_day(day), "applescript"
+
+
 @guarded
 def mac_calendar(args: dict) -> str:
     action = args.get("action")
     today = dt.date.today()
-    if action == "today":
-        return json_ok(date=str(today), events=_events_for_day(today))
-    if action == "tomorrow":
-        d = today + dt.timedelta(days=1)
-        return json_ok(date=str(d), events=_events_for_day(d))
-    if action == "on_date":
-        d = dt.date.fromisoformat(args["date"])
-        return json_ok(date=str(d), events=_events_for_day(d))
+    if action in ("today", "tomorrow", "on_date"):
+        d = {"today": today, "tomorrow": today + dt.timedelta(days=1)}.get(action) or dt.date.fromisoformat(args["date"])
+        events, backend = _day_events(d)
+        return json_ok(date=str(d), events=events, backend=backend)
     if action == "create":
         title = args.get("title") or "Событие"
         d = dt.date.fromisoformat(args.get("date") or str(today))
         hh, mm = (args.get("start_time") or "12:00").split(":")
         dur = int(args.get("duration_min") or 60)
+        res = native.calendar_create(title, dt.datetime(d.year, d.month, d.day, int(hh), int(mm)), dur, args.get("calendar"))
+        if res is not None:
+            if res.get("error"):
+                return json_err(res["error"], backend="ical")
+            return json_ok(created=title, date=str(d), start=f"{int(hh):02d}:{int(mm):02d}", duration_min=dur, backend="ical")
         cal_clause = f'calendar {as_str(args["calendar"])}' if args.get("calendar") else "first calendar whose writable is true"
         script = f'''
         set startDate to (current date)
@@ -542,14 +553,23 @@ def mac_calendar(args: dict) -> str:
 @guarded
 def mac_reminders(args: dict) -> str:
     action = args.get("action")
-    list_clause = f"list {as_str(args['list_name'])}" if args.get("list_name") else "default list"
+    list_name = args.get("list_name")
+    list_clause = f"list {as_str(list_name)}" if list_name else "default list"
     if action == "list":
+        items = native.reminders_list(list_name)
+        if items is not None:  # remindctl: с датами, списками и стабильными id
+            return json_ok(reminders=[i["title"] for i in items], items=items, backend="remindctl")
         out = osascript(f'tell application "Reminders" to get name of every reminder of {list_clause} whose completed is false', timeout=60)
-        return json_ok(reminders=mac.safe_list(out.split(",")))
+        return json_ok(reminders=mac.safe_list(out.split(",")), backend="applescript")
     if action == "add":
         title = args.get("title")
         if not title:
             return json_err("Нужен title")
+        res = native.reminders_add(title, args.get("due"), list_name, args.get("notes"))
+        if res is not None:
+            if res.get("error"):
+                return json_err(res["error"], backend="remindctl")
+            return json_ok(added=title, due=args.get("due"), backend="remindctl")
         if args.get("due"):
             d = dt.datetime.strptime(args["due"], "%Y-%m-%d %H:%M")
             script = f'''
@@ -563,11 +583,16 @@ def mac_reminders(args: dict) -> str:
         return json_ok(added=title, due=args.get("due"))
     if action == "complete":
         title = args.get("title", "")
+        res = native.reminders_complete(title, list_name)
+        if res is not None:
+            if res.get("error"):
+                return json_err(res["error"], backend="remindctl")
+            return json_ok(completed=res.get("completed", title), backend="remindctl")
         osascript(
             f'tell application "Reminders" to set completed of (first reminder of {list_clause} whose name contains {as_str(title)} and completed is false) to true',
             timeout=60,
         )
-        return json_ok(completed=title)
+        return json_ok(completed=title, backend="applescript")
     return json_err(f"Неизвестное действие: {action}")
 
 
@@ -634,33 +659,48 @@ def mac_type(args: dict) -> str:
     return json_err(f"Неизвестное действие: {action}")
 
 
+def _window_geometry(action: str, w: int, h: int, menubar: int = 25) -> tuple[int, int, int, int] | None:
+    """Целевые (x, y, ширина, высота) для раскладок; None — действие не про геометрию."""
+    if action == "maximize":
+        return 0, menubar, w, h - menubar
+    if action == "left_half":
+        return 0, menubar, w // 2, h - menubar
+    if action == "right_half":
+        return w // 2, menubar, w // 2, h - menubar
+    if action == "center":
+        cw, ch = int(w * 0.7), int(h * 0.7)
+        return (w - cw) // 2, (h - ch) // 2, cw, ch
+    return None
+
+
 @guarded
 def mac_window(args: dict) -> str:
     action = args.get("action")
     app = args.get("app") or mac.frontmost_app()
+    if action == "list":
+        rows = native.window_list(app)
+        if rows is not None:  # peekaboo: id окон, кто активен, кто свёрнут
+            return json_ok(app=app, windows=[r["title"] for r in rows], items=rows, backend="peekaboo")
+        out = osascript(f'tell application "System Events" to get name of every window of process {as_str(app)}')
+        return json_ok(app=app, windows=mac.safe_list(out.split(",")), backend="applescript")
     # размеры основного экрана
     bounds = osascript('tell application "Finder" to get bounds of window of desktop')
     x0, y0, x1, y1 = [int(v) for v in bounds.split(",")]
     w, h = x1 - x0, y1 - y0
     menubar = 25
+    geo = _window_geometry(action, w, h, menubar)
+    done = native.window_action(app, "minimize") if action == "minimize" else (native.window_action(app, "set-bounds", geo) if geo else None)
+    if done:
+        return json_ok(app=app, action=action, backend="peekaboo")
     tell = f'tell application "System Events" to tell process {as_str(app)} to tell window 1 to '
-    if action == "list":
-        out = osascript(f'tell application "System Events" to get name of every window of process {as_str(app)}')
-        return json_ok(app=app, windows=mac.safe_list(out.split(",")))
     if action == "minimize":
         osascript(tell + "set value of attribute \"AXMinimized\" to true")
-    elif action == "maximize":
-        osascript(tell + f"set {{position, size}} to {{{{0, {menubar}}}, {{{w}, {h - menubar}}}}}")
-    elif action == "left_half":
-        osascript(tell + f"set {{position, size}} to {{{{0, {menubar}}}, {{{w // 2}, {h - menubar}}}}}")
-    elif action == "right_half":
-        osascript(tell + f"set {{position, size}} to {{{{{w // 2}, {menubar}}}, {{{w // 2}, {h - menubar}}}}}")
-    elif action == "center":
-        cw, ch = int(w * 0.7), int(h * 0.7)
-        osascript(tell + f"set {{position, size}} to {{{{{(w - cw) // 2}, {(h - ch) // 2}}}, {{{cw}, {ch}}}}}")
+    elif geo:
+        x, y, gw, gh = geo
+        osascript(tell + f"set {{position, size}} to {{{{{x}, {y}}}, {{{gw}, {gh}}}}}")
     else:
         return json_err(f"Неизвестное действие: {action}")
-    return json_ok(app=app, action=action)
+    return json_ok(app=app, action=action, backend="applescript")
 
 
 @guarded

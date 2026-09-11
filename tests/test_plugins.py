@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from pathlib import Path
 import platform
 
 import pytest
@@ -377,3 +378,91 @@ def test_screen_context_detects_phrases_and_injects(monkeypatch):
     # cron-ход никогда не снимает экран
     out = core.hook_pre_llm_call(session_id="cron_1", user_message="что на экране?")
     assert "[JARVIS screen]" not in out["context"]
+
+
+# ─────────────────────────── нативные CLI (ical / remindctl / peekaboo) ────
+
+def _fake_cli(monkeypatch, native, binaries: dict[str, object]):
+    """Подменяем which/run/run_json: binaries = {'ical': json_or_callable, ...}. Возвращает список вызовов."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(native, "which", lambda name: f"/opt/homebrew/bin/{name}" if name in binaries else None)
+
+    def run(cmd, timeout=40):
+        calls.append(cmd)
+        return 0, ""
+
+    def run_json(cmd, timeout=40):
+        calls.append(cmd)
+        val = binaries[Path(cmd[0]).name]
+        return val(cmd) if callable(val) else val
+
+    monkeypatch.setattr(native, "run", run)
+    monkeypatch.setattr(native, "run_json", run_json)
+    return calls
+
+
+def test_native_calendar_prefers_ical_and_falls_back(monkeypatch):
+    macos = load_plugin("jarvis-macos")
+    monkeypatch.setattr(macos.tools.mac, "IS_MAC", True)
+    ev = [{"id": "X1", "title": "Синк", "start_date": "2026-09-12T15:00:00+03:00", "end_date": "2026-09-12T16:00:00+03:00",
+           "all_day": False, "calendar": "Work"},
+          {"id": "X2", "title": "День рождения", "start_date": "2026-09-12T00:00:00+03:00", "end_date": "2026-09-13T00:00:00+03:00",
+           "all_day": True, "calendar": "Birthdays"}]
+    calls = _fake_cli(monkeypatch, macos.native, {"ical": ev})
+    out = json.loads(macos.tools.mac_calendar({"action": "on_date", "date": "2026-09-12"}))
+    assert out["success"] and out["backend"] == "ical", out
+    assert [e["title"] for e in out["events"]] == ["День рождения", "Синк"]  # весь день — первым
+    assert out["events"][1]["start"] == "15:00" and out["events"][1]["end"] == "16:00"
+    assert calls[0][1:3] == ["list", "-f"] and "-o" in calls[0]
+    # без ical → старый AppleScript-путь
+    monkeypatch.setattr(macos.native, "which", lambda name: None)
+    monkeypatch.setattr(macos.tools, "_events_for_day", lambda d: [{"title": "AS", "start": "10:00"}])
+    out = json.loads(macos.tools.mac_calendar({"action": "today"}))
+    assert out["backend"] == "applescript" and out["events"][0]["title"] == "AS"
+
+
+def test_native_reminders_roundtrip(monkeypatch):
+    macos = load_plugin("jarvis-macos")
+    monkeypatch.setattr(macos.tools.mac, "IS_MAC", True)
+    items = [{"id": "R1", "title": "Позвонить маме", "listName": "Личное", "dueDate": "2026-09-12T09:00:00+03:00", "isCompleted": False}]
+    calls = _fake_cli(monkeypatch, macos.native, {"remindctl": items})
+    out = json.loads(macos.tools.mac_reminders({"action": "list"}))
+    assert out["backend"] == "remindctl" and out["reminders"] == ["Позвонить маме"] and out["items"][0]["due"] == "2026-09-12 09:00"
+    out = json.loads(macos.tools.mac_reminders({"action": "add", "title": "Купить молоко", "due": "2026-09-13 10:00", "list_name": "Дом"}))
+    assert out["success"] and out["backend"] == "remindctl"
+    assert calls[-1][1:3] == ["add", "Купить молоко"] and "--due" in calls[-1] and "--list" in calls[-1]
+    out = json.loads(macos.tools.mac_reminders({"action": "complete", "title": "маме"}))
+    assert out["success"] and out["completed"] == "Позвонить маме" and calls[-1][1:] == ["complete", "R1"]
+
+
+def test_native_window_and_screenshot(monkeypatch, tmp_path):
+    macos = load_plugin("jarvis-macos")
+    monkeypatch.setattr(macos.tools.mac, "IS_MAC", True)
+    monkeypatch.setattr(macos.tools.mac, "frontmost_app", lambda: "Safari")
+    monkeypatch.setattr(macos.tools, "osascript", lambda script, **kw: "0, 0, 1440, 900")
+    wins = {"data": {"windows": [{"window_id": 7, "title": "GitHub", "is_frontmost": True}]}}
+    calls = _fake_cli(monkeypatch, macos.native, {"peekaboo": wins})
+    out = json.loads(macos.tools.mac_window({"action": "list"}))
+    assert out["backend"] == "peekaboo" and out["windows"] == ["GitHub"] and out["items"][0]["id"] == 7
+    out = json.loads(macos.tools.mac_window({"action": "left_half"}))
+    assert out["backend"] == "peekaboo" and calls[-1][1:3] == ["window", "set-bounds"] and calls[-1][calls[-1].index("--width") + 1] == "720"
+    assert macos.tools._window_geometry("center", 1000, 1000) == (150, 150, 700, 700)
+    assert macos.tools._window_geometry("zzz", 1, 1) is None
+    # скриншот: peekaboo see --no-elements, файл появился → backend peekaboo
+    monkeypatch.setenv("JARVIS_CACHE_DIR", str(tmp_path))
+
+    def run_touch(cmd, timeout=40):
+        calls.append(cmd)
+        Path(cmd[-1]).write_bytes(b"png")
+        return 0, ""
+
+    monkeypatch.setattr(macos.native, "run", run_touch)
+    out = json.loads(macos.tools.mac_screenshot({"mode": "front_window"}))
+    assert out["success"] and out["backend"] == "peekaboo" and "frontmost" in calls[-1]
+
+
+def test_native_available_and_hints():
+    macos = load_plugin("jarvis-macos")
+    av = macos.native.available()
+    assert set(av) == {"ical", "remindctl", "peekaboo"} == set(macos.native.INSTALL_HINTS)
+    assert macos.native.run_json(["definitely-not-a-binary-xyz"]) is None
