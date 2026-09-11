@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "J.A.R.V.I.S. on Hermes Agent"
+type: software
+authors:
+  - name: "ERTGYKI"
+    alias: "debug999-cyber"
+    email: "zdanovichmd01@gmail.com"
+repository-code: "https://github.com/debug999-cyber/jarvis-hermes"
+url: "https://github.com/debug999-cyber/jarvis-hermes"
+license: MIT
+version: "1.8.1"
+date-released: "2026-09-10"
+abstract: "Personal voice AI assistant for macOS built on Hermes Agent: Mac control, holographic HUD, structured knowledge base, file/project vault, menu-bar app with auto-update."
+keywords: [jarvis, assistant, macos, hermes-agent, voice, hud, knowledge-base]

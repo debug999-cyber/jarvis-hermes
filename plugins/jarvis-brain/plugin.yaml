@@ -3,7 +3,7 @@ version: 1.0.0
 manifest_version: 2
 api_version: 1
 description: "J.A.R.V.I.S — живая база знаний: SQLite+FTS5, автозаполнение из диалогов, релевантный контекст на каждом ходе, ночная ревизия структуры"
-author: JARVIS Project
+author: ERTGYKI (debug999-cyber)
 license: MIT
 tags: [jarvis, memory, knowledge-base, sqlite]
 

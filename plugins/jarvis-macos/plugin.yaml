@@ -3,7 +3,7 @@ version: 1.0.0
 manifest_version: 2
 api_version: 1
 description: "J.A.R.V.I.S — управление macOS: приложения, громкость, яркость, музыка, календарь, напоминания, заметки, скриншоты, Shortcuts, AppleScript"
-author: JARVIS Project
+author: ERTGYKI (debug999-cyber)
 license: MIT
 homepage: https://github.com/your-name/jarvis-hermes
 tags: [macos, jarvis, automation, desktop]

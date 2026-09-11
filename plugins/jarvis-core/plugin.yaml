@@ -3,7 +3,7 @@ version: 1.0.0
 manifest_version: 2
 api_version: 1
 description: "J.A.R.V.I.S — ядро: контекст окружения, шина событий HUD, голографические панели, брифинги, режимы фокуса"
-author: JARVIS Project
+author: ERTGYKI (debug999-cyber)
 license: MIT
 tags: [jarvis, hud, voice, assistant]
 

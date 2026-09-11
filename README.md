@@ -166,6 +166,13 @@ jarvis-hermes/
 и сборка JARVIS.app в CI на каждый коммит; в каждом релизе — готовое приложение; каждый релиз проходит smoke-тест updater'а с автоматическим откатом. Проверено на реальном Mac (macOS 26, M-серия):
 после `jarvis selftest` и выдачи прав работают все интеграции. Issue и PR приветствуются.
 
+## Автор
+
+Проект создан и ведётся **ERTGYKI** ([@debug999-cyber](https://github.com/debug999-cyber)). Первый коммит — 2026-09-10;
+вся история разработки от идеи до текущего релиза — в [git-истории](https://github.com/debug999-cyber/jarvis-hermes/commits/main)
+и [CHANGELOG](docs/CHANGELOG.md). Форки и производные проекты приветствуются по условиям MIT — с сохранением указания авторства.
+Цитировать: см. [CITATION.cff](CITATION.cff).
+
 ## Лицензия
 
-MIT. Hermes Agent — MIT © Nous Research. Идеи HUD вдохновлены проектом [eadmin2/jarvis_ai](https://github.com/eadmin2/jarvis_ai) (MIT).
+MIT © 2026 ERTGYKI. Hermes Agent — MIT © Nous Research. Идеи HUD вдохновлены проектом [eadmin2/jarvis_ai](https://github.com/eadmin2/jarvis_ai) (MIT).

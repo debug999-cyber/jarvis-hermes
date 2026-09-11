@@ -126,7 +126,13 @@ and classic Python "Jarvis" projects. Memory design: **Hindsight** (reflect), **
 **Mem0** (entity linking), **Letta/MemGPT** and *Generative Agents* (self-managed memory). Heartbeat: **OpenClaw**.
 Full list with "what was borrowed": [docs/SOURCES.md](docs/SOURCES.md).
 
+## Author
+
+Created and maintained by **ERTGYKI** ([@debug999-cyber](https://github.com/debug999-cyber)). First commit: 2026-09-10;
+the full development history is in the [git log](https://github.com/debug999-cyber/jarvis-hermes/commits/main) and
+[CHANGELOG](docs/CHANGELOG.md). Forks and derivatives are welcome under MIT — keep the attribution. To cite: [CITATION.cff](CITATION.cff).
+
 ## Status & license
 
 **1.8.1 — stable.** 115 automated tests (Linux + macOS, Python 3.11/3.12), `ruff`/`shellcheck`, a Swift build and a real
-browser e2e run on every commit; every release ships a prebuilt JARVIS.app. MIT. Hermes Agent — MIT © Nous Research.
+browser e2e run on every commit; every release ships a prebuilt JARVIS.app. MIT © 2026 ERTGYKI. Hermes Agent — MIT © Nous Research.
