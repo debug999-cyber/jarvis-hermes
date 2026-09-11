@@ -21,6 +21,26 @@
 
 Из Finder: правый клик на файле → **Быстрые действия → «В хранилище JARVIS»** (ставится командой `jarvis shortcuts`).
 
+## Полный доступ: что JARVIS может делать с файлами
+
+| Вы говорите | Что происходит |
+|---|---|
+| «Что в договоре с Acme про сроки?» | `vault_search` → `vault_read` → ответ с файлом и строкой |
+| «Сделай конспект презентации и положи рядом» | `vault_read` → `vault_manage write inbox/…-конспект.md` |
+| «Разложи inbox по папкам» | план по содержимому (договоры / счета / статьи / личное…) → `mkdir` + `move`; при > 5 файлов сначала покажет план |
+| «Переименуй scan_0012.pdf в договор-аренды.pdf» | `move` (существующее не перезаписывается) |
+| «Удали старые черновики» | `trash` — только в Корзину macOS, необратимого удаления в хранилище нет |
+| «Открой проект atlas, почини тест и закоммить» | обычные `read_file`/`patch`/`terminal` в `projects/atlas` |
+| «Подключи Документы / iCloud / Obsidian» | `vault_manage connect what=documents\|icloud\|notes-obsidian` — Obsidian-vault находится сам |
+
+Запись возможна **только внутри** `~/JARVIS` и подключённых проектов; файлы с секретами (`.env`, ключи) через хранилище не создаются.
+Все операции пишутся в журнал базы (`jarvis brain log`).
+
+**Новые файлы попадают в память.** Положили файл → через минуту JARVIS его прочитает, запишет в базу знаний заметку
+`document` («inbox/договор Acme.md: договор до 31.12.2026, 5000 CHF/мес, контакт Анна Мюллер») и скажет, что это. Поэтому
+«что у меня есть про Acme?» отвечается из памяти, а файл — по ссылке в заметке. Ночная ревизия дорезюмирует то, что
+осталось (`jarvis vault pending` — список неразобранного).
+
 ## Что индексируется
 
 | Тип | Как | Нужно |
@@ -45,7 +65,7 @@
 |---|---|
 | `vault_search(query, in?, ext?, limit?)` | полнотекстовый поиск по содержимому (BM25, префиксы слов, русский/английский); возвращает файл, строку, фрагмент |
 | `vault_read(path, offset?, limit?)` | текст файла (PDF/DOCX/PPTX/XLSX уже сконвертированы), постранично |
-| `vault_manage(action=status\|list\|tree\|reindex\|add\|remove)` | состояние, дерево, переиндексация, подключение проектов |
+| `vault_manage(action=…)` | чтение: `status`, `list`, `tree`, `pending`; проекты: `add`, `remove`, `connect`, `reindex`; запись: `write`, `mkdir`, `move`, `trash`; `summarized` — отметить файл разобранным |
 | обычные `read_file` / `write_file` / `patch` / `terminal` | по путям из результатов — править и запускать проекты |
 
 В каждый ход, где в сообщении ≥ 3 слов, JARVIS получает блок `[JARVIS vault]` с 1–3 лучшими фрагментами — поэтому часто
@@ -64,6 +84,10 @@ jarvis vault tree [путь]     дерево
 jarvis vault search "слова"  поиск из терминала
 jarvis vault read <файл>     извлечённый текст
 jarvis vault reindex [--force]
+jarvis vault connect icloud|desktop|documents|downloads|notes-obsidian
+jarvis vault move <файл> <папка|новое имя>
+jarvis vault trash <файл>          в Корзину
+jarvis vault pending               файлы, ещё не разобранные в базу знаний
 ```
 
 Настройки (`config.yaml → plugins.jarvis-brain`): `vault_dir` (другая папка; или `JARVIS_VAULT_DIR`), `vault_context`

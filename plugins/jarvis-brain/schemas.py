@@ -201,14 +201,21 @@ VAULT_READ = {
 VAULT_MANAGE = {
     "name": "vault_manage",
     "description": (
-        "Управление хранилищем: status — что проиндексировано; list — файлы (опционально prefix, recent); tree — структура; "
-        "add — подключить существующую папку проекта (path, name) как projects/<name>; remove — отключить; reindex — обновить индекс сейчас."
+        "Управление хранилищем ~/JARVIS и файлами в нём. Чтение: status; list (prefix, recent); tree; pending — новые файлы без резюме. "
+        "Проекты: add — подключить папку (path, name) как projects/<name>; remove; connect — подключить стандартный источник "
+        "(what: icloud|desktop|documents|downloads|notes-obsidian); reindex. "
+        "Запись (только внутри хранилища/проектов): write (path, content, mode=overwrite|append) — создать/изменить текстовый файл; "
+        "mkdir (path); move (path, to) — переместить/переименовать, напр. разложить inbox по папкам; trash (path) — в Корзину "
+        "(необратимого удаления нет). summarized (file_id, note_id) — отметить файл как разобранный после brain_remember."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["status", "list", "tree", "add", "remove", "reindex"]},
+            "action": {"type": "string", "enum": ["status", "list", "tree", "pending", "add", "remove", "connect", "reindex",
+                                                  "write", "mkdir", "move", "trash", "summarized"]},
             "path": {"type": "string"}, "name": {"type": "string"}, "prefix": {"type": "string"},
+            "content": {"type": "string"}, "mode": {"type": "string", "enum": ["overwrite", "append"], "default": "overwrite"},
+            "to": {"type": "string"}, "what": {"type": "string"}, "file_id": {"type": "integer"}, "note_id": {"type": "integer"},
             "recent": {"type": "boolean", "default": False}, "depth": {"type": "integer", "default": 2},
         },
         "required": ["action"],

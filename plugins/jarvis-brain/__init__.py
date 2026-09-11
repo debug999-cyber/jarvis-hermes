@@ -521,8 +521,39 @@ def tool_vault_manage(args: dict, **kwargs) -> str:
             st = v.reindex(force=True)
             _hud("vault.update", {"action": "reindex", **{k: st[k] for k in ("indexed", "removed")}})
             return _ok(**st)
+        if a == "pending":
+            return _ok(files=v.pending_summaries(int(args.get("limit") or 5)),
+                       hint="для каждого: vault_read → brain_remember(kind='document', content='<файл>: <суть в 1–2 предложениях>', tags='vault') → vault_manage summarized")
+        if a == "connect":
+            res = v.connect(args.get("what") or "")
+            st = v.reindex()
+            _hud("vault.update", {"action": "add", "name": res["name"], "indexed": st["indexed"]})
+            return _ok(**res, indexed=st["indexed"])
+        if a == "write":
+            if not args.get("path") or args.get("content") is None:
+                return _err("Нужны path и content")
+            res = v.write(args["path"], str(args["content"]), args.get("mode") or "overwrite")
+            _hud("vault.update", {"action": "write", "name": res["rel"]})
+            return _ok(**res)
+        if a == "mkdir":
+            return _ok(**v.mkdir(args.get("path") or ""))
+        if a == "move":
+            if not args.get("path") or not args.get("to"):
+                return _err("Нужны path и to")
+            res = v.move(args["path"], args["to"])
+            _hud("vault.update", {"action": "move", "name": res["rel"]})
+            return _ok(**res)
+        if a == "trash":
+            if not args.get("path"):
+                return _err("Нужен path")
+            return _ok(**v.trash(args["path"]))
+        if a == "summarized":
+            if not args.get("file_id"):
+                return _err("Нужен file_id (из pending/list)")
+            v.mark_summarized(int(args["file_id"]), args.get("note_id"))
+            return _ok(file_id=int(args["file_id"]))
         return _err(f"Неизвестное действие {a}")
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, PermissionError) as e:
         return _err(str(e))
 
 

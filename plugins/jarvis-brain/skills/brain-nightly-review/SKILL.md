@@ -59,3 +59,8 @@ metadata:
 ## Verification
 - `brain_review stats`: `turns_pending` = 0, число активных заметок не выросло на мусор, `last_review` обновился.
 - В `changelog` есть записи actor=nightly за эту ночь.
+
+## Хранилище файлов (после maintain, до plan)
+`vault_manage pending` → для каждого файла (не больше 10 за ночь): `vault_read` первые ~80 строк → `brain_remember(kind='document',
+content='<файл>: <суть>', tags='vault', importance=2)` → `vault_manage summarized(file_id, note_id)`. Файлы проектов (`projects/`)
+не резюмируются по одному — при желании одна заметка на проект («atlas: Django-бэкенд, авторизация через JWT, тесты pytest»).

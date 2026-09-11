@@ -102,9 +102,12 @@ class Triggers:
         names = ", ".join(new[:5]) + (f" и ещё {len(new) - 5}" if len(new) > 5 else "")
         return [{"kind": "vault.inbox", "text": f"Новые файлы в хранилище: {names}", "llm": True, "urgent": False,
                  "prompt": (f"Событие: пользователь положил в ~/JARVIS/inbox новые файлы: {names}. "
-                            "Вызови vault_manage reindex, затем vault_read по каждому (первые ~60 строк) и одним-двумя "
-                            "предложениями скажи, что это и что с этим можно сделать (например: «это договор с Acme до 2026 — "
-                            "записать срок в память?»). Не делай ничего необратимого. Если файлы служебные/пустые — NO_REPLY.")}]
+                            "1) vault_manage reindex, затем vault_manage pending. 2) Для каждого нового файла: vault_read (первые ~80 строк), "
+                            "brain_remember(kind='document', content='<имя файла>: <суть в 1–2 предложениях, ключевые даты/суммы/имена>', "
+                            "tags='vault,inbox', importance=2), затем vault_manage summarized(file_id, note_id). "
+                            "3) Ответь пользователю одним-двумя предложениями: что это и что с этим можно сделать "
+                            "(например: «это договор с Acme до 2026 — записать срок в память? разложить в inbox/договоры?»). "
+                            "Ничего не перемещай и не удаляй без просьбы. Если файлы служебные/пустые — NO_REPLY.")}]
 
     def detect_return(self, idle_sec: float | None, now: float) -> list[dict]:
         if idle_sec is None:

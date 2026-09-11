@@ -205,3 +205,72 @@ def test_cli_entrypoint(brain, tmp_path, monkeypatch):
     assert r.returncode == 0 and json.loads(r.stdout)[0]["rel"] == "a.md"
     r = subprocess.run([sys.executable, str(script), "status"], capture_output=True, text=True, env=env)
     assert r.returncode == 0 and "Файлов в индексе: 2" in r.stdout
+
+
+def _prep(brain, tmp_path):
+    v = brain.vault(); v.ensure_layout(); root = tmp_path / "JARVIS"; _seed(root); v.reindex()
+    return v, root
+
+
+def test_write_move_trash_inside_only(brain, tmp_path, monkeypatch):
+    v, root = _prep(brain, tmp_path)
+    # write создаёт файл и сразу индексирует
+    r = v.write("inbox/заметка.md", "Совещание по проекту Atlas перенесено на пятницу")
+    assert r["created"] and r["indexed"] and (root / "inbox" / "заметка.md").exists()
+    assert any("заметка.md" in h["rel"] for h in v.search("совещание Atlas пятницу"))
+    # append
+    v.write("inbox/заметка.md", "Дополнение: пригласить Анну", mode="append")
+    assert "Дополнение" in (root / "inbox" / "заметка.md").read_text()
+    # move в новую папку + индекс переезжает
+    v.mkdir("inbox/встречи")
+    m = v.move("inbox/заметка.md", "inbox/встречи")
+    assert m["rel"] == "inbox/встречи/заметка.md" and not (root / "inbox" / "заметка.md").exists()
+    hits = v.search("совещание Atlas пятницу")
+    assert hits and all("встречи/заметка.md" in h["rel"] for h in hits)
+    # вне хранилища — нельзя
+    outside = tmp_path / "outside.txt"
+    with pytest.raises(PermissionError):
+        v.write(str(outside), "x")
+    with pytest.raises(PermissionError):
+        v.move("inbox/встречи/заметка.md", str(tmp_path / "elsewhere.md"))
+    # секреты не пишем
+    with pytest.raises(PermissionError):
+        v.write("inbox/.env", "TOKEN=1")
+    # trash → в .trash (не macOS), индекс чистится
+    t = v.trash("inbox/встречи/заметка.md")
+    assert t["trashed"] and not (root / "inbox" / "встречи" / "заметка.md").exists()
+    assert v.search("совещание Atlas пятницу") == []
+    with pytest.raises(PermissionError):
+        v.trash("inbox")
+
+
+def test_pending_summaries_and_mark(brain, tmp_path):
+    v, root = _prep(brain, tmp_path)
+    (root / "inbox" / "договор.md").write_text("Договор с Acme до 31.12.2026, сумма 12 000 CHF")
+    v.reindex()
+    pend = v.pending_summaries()
+    names = [p["name"] for p in pend]
+    assert "договор.md" in names and "README.md" not in names
+    fid = next(p["id"] for p in pend if p["name"] == "договор.md")
+    note = brain.brain().remember("inbox/договор.md: договор с Acme до конца 2026, 12 000 CHF", kind="document", tags="vault")
+    v.mark_summarized(fid, note["id"])
+    assert fid not in [p["id"] for p in v.pending_summaries()]
+    # инструмент: pending / write / move / trash через tool_vault_manage
+    out = json.loads(brain.tool_vault_manage({"action": "write", "path": "inbox/план.md", "content": "1. купить кофе"}))
+    assert out["success"] and out["created"]
+    out = json.loads(brain.tool_vault_manage({"action": "move", "path": "inbox/план.md", "to": "inbox/личное/план.md"}))
+    assert out["success"] and out["rel"] == "inbox/личное/план.md"
+    out = json.loads(brain.tool_vault_manage({"action": "write", "path": "/etc/evil", "content": "x"}))
+    assert not out["success"] and "вне хранилища" in out["error"]
+
+
+def test_connect_obsidian_lookup(brain, tmp_path, monkeypatch):
+    v, root = _prep(brain, tmp_path)
+    obs = tmp_path / "ObsVault"; obs.mkdir(); (obs / "note.md").write_text("Идея: сделать JARVIS ещё умнее")
+    monkeypatch.setattr(v, "_find_obsidian", staticmethod(lambda: str(obs)))
+    res = v.connect("notes-obsidian")
+    assert res["name"] == "Obsidian" and (root / "projects" / "Obsidian").is_symlink()
+    v.reindex()
+    assert any("note.md" in h["rel"] for h in v.search("сделать JARVIS умнее"))
+    with pytest.raises(ValueError):
+        v.connect("dropbox")

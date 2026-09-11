@@ -29,7 +29,7 @@
 | 📅 **Productivity** | Calendar, Reminders, Notes, Shortcuts, timers & alarms, morning/evening briefings | `jarvis-macos` + `jarvis-core` |
 | 🎵 **Media** | Apple Music / Spotify: play/pause/next, "what's playing", playlists | `jarvis-macos` |
 | 🧠 **Brain** | any LLM (OpenRouter, Anthropic, OpenAI, Gemini, local Ollama…), long-term memory, self-taught skills, FTS search over past sessions | Hermes |
-| 📁 **File & project vault** | the `~/JARVIS` folder: drop any documents, PDFs, spreadsheets, decks, and link whole projects — JARVIS indexes the content (SQLite FTS5), searches, reads, edits and runs; new files in `inbox/` are noticed automatically and JARVIS suggests what to do. Secrets are never indexed. [docs/VAULT.md](docs/VAULT.md) | `jarvis-brain` (`vault_*`) |
+| 📁 **File & project vault** | the `~/JARVIS` folder: drop any documents, PDFs, spreadsheets, decks, and link whole projects — (or iCloud/Documents/Obsidian with one command) — JARVIS indexes the content (SQLite FTS5), searches, reads, **writes, sorts into folders, renames** (delete = Trash only), edits and runs code; new files are noticed automatically, summarized into the knowledge base, and JARVIS suggests what to do. Secrets are never indexed. [docs/VAULT.md](docs/VAULT.md) | `jarvis-brain` (`vault_*`) |
 | 🗄 **Knowledge base** | own structured store (SQLite+FTS5): people, projects, preferences, decisions, daily diary; JARVIS fills it during conversation, injects relevant facts into every turn and **reviews the structure nightly** (duplicates, conflicts, taxonomy, entity cards) with backup + changelog. Temporal facts ("what used to be true"), living entity summaries, learns from its own tool failures, **lowers confidence when you say "that's not right"** | `jarvis-brain` |
 | 🌐 **Web** | search, page extraction, browser (Playwright), images, YouTube on the HUD | Hermes + `jarvis_hud` |
 | 💻 **Dev** | terminal, files, patches, code execution, sub-agents, Claude Code / Codex as skills, MCP servers | Hermes |
@@ -128,5 +128,5 @@ Full list with "what was borrowed": [docs/SOURCES.md](docs/SOURCES.md).
 
 ## Status & license
 
-**1.8.0 — stable.** 110+ automated tests (Linux + macOS, Python 3.11/3.12), `ruff`/`shellcheck`, a Swift build and a real
+**1.8.1 — stable.** 115 automated tests (Linux + macOS, Python 3.11/3.12), `ruff`/`shellcheck`, a Swift build and a real
 browser e2e run on every commit; every release ships a prebuilt JARVIS.app. MIT. Hermes Agent — MIT © Nous Research.

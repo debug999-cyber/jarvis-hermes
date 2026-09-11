@@ -57,14 +57,15 @@ MAX_FILE_BYTES = 5 * 1024 * 1024
 CHUNK_CHARS = 1200
 CHUNK_OVERLAP = 150
 MAX_CHUNKS_PER_FILE = 400
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS files(
     id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, rel TEXT NOT NULL, name TEXT NOT NULL, ext TEXT DEFAULT '',
     source TEXT DEFAULT 'vault', size INTEGER DEFAULT 0, mtime REAL DEFAULT 0, sha1 TEXT DEFAULT '',
     chunks INTEGER DEFAULT 0, chars INTEGER DEFAULT 0, kind TEXT DEFAULT 'text', status TEXT DEFAULT 'ok',
-    note TEXT DEFAULT '', summary TEXT DEFAULT '', indexed_at TEXT, seen_at TEXT);
+    note TEXT DEFAULT '', summary TEXT DEFAULT '', indexed_at TEXT, seen_at TEXT,
+    summarized_at TEXT, summary_note INTEGER);
 CREATE INDEX IF NOT EXISTS files_rel ON files(rel);
 CREATE TABLE IF NOT EXISTS file_chunks(
     id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, no INTEGER NOT NULL, line_from INTEGER DEFAULT 1, content TEXT NOT NULL,
@@ -229,7 +230,13 @@ class Vault:
                 self._conn.executescript(FTS_SCHEMA)
             except sqlite3.OperationalError:
                 self.has_fts = False
-            self._conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('vault_schema', ?)", (str(SCHEMA_VERSION),))
+            # миграция v1 → v2: колонки для авторезюме новых файлов (базы, созданные 1.8.0)
+            cols = {r[1] for r in self._conn.execute("PRAGMA table_info(files)")}
+            for col, ddl in (("summarized_at", "TEXT"), ("summary_note", "INTEGER")):
+                if col not in cols:
+                    self._conn.execute(f"ALTER TABLE files ADD COLUMN {col} {ddl}")
+            self._conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('vault_schema', ?)", (str(SCHEMA_VERSION),))
+            self._conn.commit()
 
     def ensure_layout(self) -> Path:
         """Создать ~/JARVIS с README и стандартными папками (идемпотентно)."""
@@ -466,6 +473,139 @@ class Vault:
         return {"path": str(p), "offset": offset, "chars": len(piece), "total": total,
                 "next_offset": offset + limit if offset + limit < total else None, "content": piece}
 
+    # ── запись и наведение порядка ─────────────────────────────────────────
+    def resolve_inside(self, path: str) -> Path:
+        """Абсолютный путь, гарантированно внутри хранилища или подключённого проекта (symlink разрешается)."""
+        p = Path(path).expanduser()
+        if not p.is_absolute():
+            p = self.root / p
+        real = p.resolve() if p.exists() else p.parent.resolve() / p.name
+        roots = [self.root.resolve()] + [Path(r["path"]).resolve() for r in self.sources()]
+        if not any(real == r or r in real.parents for r in roots):
+            raise PermissionError(f"путь вне хранилища и подключённых проектов: {p}")
+        return real
+
+    def write(self, path: str, content: str, mode: str = "overwrite") -> dict:
+        """Создать/перезаписать/дописать текстовый файл внутри хранилища; индекс обновляется сразу."""
+        p = self.resolve_inside(path)
+        if p.is_dir():
+            raise IsADirectoryError(f"это папка: {p}")
+        if SKIP_NAME_RE.search(p.name):
+            raise PermissionError("файлы с секретами (.env, ключи, сертификаты) через vault не пишутся")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        existed = p.exists()
+        with open(p, "a" if mode == "append" else "w", encoding="utf-8") as f:
+            f.write(content if not (mode == "append" and existed and content and not content.startswith("\n")) else "\n" + content)
+        status = self.index_file(p, source=self._source_for(p), force=True)
+        self.brain._log("agent", "vault_write", "files", None, after={"path": str(p), "mode": mode, "chars": len(content)})
+        return {"path": str(p), "rel": self.rel(p), "created": not existed, "indexed": status == "indexed"}
+
+    def mkdir(self, path: str) -> dict:
+        p = self.resolve_inside(path)
+        p.mkdir(parents=True, exist_ok=True)
+        return {"path": str(p), "rel": self.rel(p)}
+
+    def move(self, src: str, dst: str) -> dict:
+        """Переместить/переименовать внутри хранилища (dst — папка или новое имя). Существующее не перезаписываем."""
+        s_ = self.resolve_inside(src)
+        if not s_.exists():
+            raise FileNotFoundError(f"нет такого файла: {s_}")
+        d = self.resolve_inside(dst)
+        if d.is_dir():
+            d = d / s_.name
+        if d.exists():
+            raise FileExistsError(f"уже существует: {d}")
+        d.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(s_), str(d))
+        with self._lock:
+            self._conn.execute("DELETE FROM file_chunks WHERE file_id IN (SELECT id FROM files WHERE path=? OR path LIKE ?)", (str(s_), str(s_) + "/%"))
+            self._conn.execute("DELETE FROM files WHERE path=? OR path LIKE ?", (str(s_), str(s_) + "/%"))
+            self._conn.commit()
+        if d.is_dir():
+            self.reindex()
+        else:
+            self.index_file(d, source=self._source_for(d), force=True)
+        self.brain._log("agent", "vault_move", "files", None, after={"from": str(s_), "to": str(d)})
+        return {"from": str(s_), "to": str(d), "rel": self.rel(d)}
+
+    def trash(self, path: str) -> dict:
+        """Удаление = только в Корзину macOS (или ~/JARVIS/.trash вне macOS). Необратимого rm здесь нет."""
+        p = self.resolve_inside(path)
+        if not p.exists():
+            raise FileNotFoundError(f"нет такого файла: {p}")
+        if p == self.root.resolve() or p.parent == self.root.resolve() and p.name in ("inbox", "projects"):
+            raise PermissionError("системные папки хранилища не удаляются")
+        moved = False
+        if sys.platform == "darwin":
+            try:
+                subprocess.run(["osascript", "-e", f'tell application "Finder" to delete POSIX file "{str(p).replace(chr(34), "")}"'],
+                               capture_output=True, timeout=10, check=True)
+                moved = True
+            except (subprocess.SubprocessError, OSError):
+                moved = False
+        if not moved:
+            tdir = self.root / ".trash"
+            tdir.mkdir(exist_ok=True)
+            shutil.move(str(p), str(tdir / f"{int(time.time())}-{p.name}"))
+        with self._lock:
+            self._conn.execute("DELETE FROM file_chunks WHERE file_id IN (SELECT id FROM files WHERE path=? OR path LIKE ?)", (str(p), str(p) + "/%"))
+            self._conn.execute("DELETE FROM files WHERE path=? OR path LIKE ?", (str(p), str(p) + "/%"))
+            self._conn.commit()
+        self.brain._log("agent", "vault_trash", "files", None, after={"path": str(p), "finder": moved})
+        return {"path": str(p), "trashed": True, "where": "Корзина" if moved else str(self.root / ".trash")}
+
+    def _source_for(self, p: Path) -> str:
+        for r in self.sources():
+            rp = Path(r["path"]).resolve()
+            if p == rp or rp in p.parents:
+                return r["name"]
+        return "vault"
+
+    # ── новые файлы → резюме в базу знаний ──────────────────────────────────
+    def pending_summaries(self, limit: int = 5) -> list[dict]:
+        """Файлы в хранилище (не в проектах), проиндексированные, но ещё без заметки-резюме в базе знаний."""
+        rows = self._conn.execute(
+            """SELECT f.id, f.path, f.rel, f.name, f.ext, f.size FROM files f
+               WHERE f.status='ok' AND f.source='vault' AND f.summarized_at IS NULL AND f.name NOT IN ('README.md')
+               ORDER BY f.mtime DESC LIMIT ?""", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_summarized(self, file_id: int, note_id: int | None = None) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE files SET summarized_at=?, summary_note=? WHERE id=?", (now(), note_id, file_id))
+            self._conn.commit()
+
+    # ── стандартные внешние папки одной командой ────────────────────────────
+    CONNECTORS = {
+        "icloud": ("~/Library/Mobile Documents/com~apple~CloudDocs", "iCloud"),
+        "desktop": ("~/Desktop", "Desktop"),
+        "documents": ("~/Documents", "Documents"),
+        "downloads": ("~/Downloads", "Downloads"),
+        "notes-obsidian": (None, "Obsidian"),  # ищем vault Obsidian по конфигу приложения
+    }
+
+    def connect(self, what: str) -> dict:
+        what = what.lower()
+        if what not in self.CONNECTORS:
+            raise ValueError(f"неизвестный источник {what}; доступно: {', '.join(self.CONNECTORS)}")
+        path, name = self.CONNECTORS[what]
+        if what == "notes-obsidian":
+            path = self._find_obsidian()
+            if not path:
+                raise FileNotFoundError("Obsidian vault не найден (нет ~/Library/Application Support/obsidian/obsidian.json)")
+        return self.add_source(path, name)
+
+    @staticmethod
+    def _find_obsidian() -> str | None:
+        cfg = Path("~/Library/Application Support/obsidian/obsidian.json").expanduser()
+        try:
+            data = json.loads(cfg.read_text())
+            vaults = data.get("vaults") or {}
+            best = max(vaults.values(), key=lambda v: v.get("ts", 0)) if vaults else None
+            return best["path"] if best and Path(best["path"]).is_dir() else None
+        except (OSError, ValueError, KeyError):
+            return None
+
     def tree(self, start: Path | None = None, depth: int = 2, limit: int = 200) -> list[str]:
         base = Path(start).expanduser() if start else self.root
         out: list[str] = []
@@ -560,6 +700,10 @@ def _main(argv: list[str]) -> int:
     t = sub.add_parser("tree"); t.add_argument("path", nargs="?"); t.add_argument("--depth", type=int, default=2)
     rd = sub.add_parser("read"); rd.add_argument("path"); rd.add_argument("--offset", type=int, default=0)
     sub.add_parser("init")
+    c = sub.add_parser("connect", help="подключить iCloud / Desktop / Documents / Downloads / Obsidian"); c.add_argument("what", choices=sorted(Vault.CONNECTORS))
+    mv = sub.add_parser("move"); mv.add_argument("path"); mv.add_argument("to")
+    tr = sub.add_parser("trash"); tr.add_argument("path")
+    sub.add_parser("pending", help="новые файлы, ещё не разобранные в базу знаний")
     for sp in sub.choices.values():
         sp.add_argument("--json", action="store_true")
     ap.add_argument("--json", action="store_true")
@@ -580,6 +724,18 @@ def _main(argv: list[str]) -> int:
             return 0
         if args.cmd == "init":
             print(v.ensure_layout()); return 0
+        if args.cmd == "connect":
+            res = v.connect(args.what); st = v.reindex()
+            print(json.dumps({**res, "indexed": st["indexed"]}, ensure_ascii=False) if args.json else f"✔ {res['name']} → {res['path']} (проиндексировано {st['indexed']})")
+            return 0
+        if args.cmd == "move":
+            print(json.dumps(v.move(args.path, args.to), ensure_ascii=False)); return 0
+        if args.cmd == "trash":
+            print(json.dumps(v.trash(args.path), ensure_ascii=False)); return 0
+        if args.cmd == "pending":
+            rows = v.pending_summaries(50)
+            print(json.dumps(rows, ensure_ascii=False, indent=1) if args.json else "\n".join(r_["rel"] for r_ in rows) or "всё разобрано")
+            return 0
         if args.cmd == "reindex":
             v.ensure_layout()
             st = v.reindex(force=args.force)
