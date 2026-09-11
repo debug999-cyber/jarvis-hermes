@@ -26,6 +26,9 @@ plugins:
         battery_threshold: 20
         watch_calendar: false            # true → напоминать о событиях за 10 минут + справка из базы знаний на HUD
         follow_focus: true               # Focus macOS (Не беспокоить/Работа/Сон) → режим JARVIS
+        alerts_webhook: ""               # доставка триггеров в мессенджер через Hermes webhook (см. блок platforms.webhook ниже),
+                                         # напр. "http://127.0.0.1:8644/webhooks/jarvis-alerts"
+        alerts_secret: ""                # тот же секрет, что у маршрута (или переменная JARVIS_ALERTS_SECRET)
     jarvis-brain:
       settings:
         inject_context: true             # релевантные знания в каждом ходе
@@ -146,3 +149,22 @@ compression:
 # ── Cron: модель для фоновых задач (можно дешевле основной) ───────────────
 cron:
   preflight: true
+
+# ── Алерты триггеров в мессенджер (диск, питание, входящие файлы, брифинг) ──
+# Готовый механизм Hermes: webhook-маршрут с deliver_only доставляет текст без вызова модели (<1 c).
+# Включить: в ~/.hermes/.env  WEBHOOK_ENABLED=true  WEBHOOK_PORT=8644  (или `hermes gateway setup`),
+# затем в jarvis-core.settings задать alerts_webhook и alerts_secret. Telegram можно заменить на
+# discord | slack | signal | whatsapp | matrix | email — любой подключённый в Hermes мессенджер.
+# Быстрая альтернатива без правки YAML:
+#   hermes webhook subscribe jarvis-alerts --deliver telegram --deliver-only --prompt "{text}" --description "JARVIS alerts"
+#   hermes webhook test jarvis-alerts --payload '{"text":"проверка"}'
+platforms:
+  webhook:
+    extra:
+      routes:
+        jarvis-alerts:
+          description: "Уведомления JARVIS (триггеры без LLM)"
+          secret: ""                     # пусто → маршрут выключен; совпадает с jarvis-core.settings.alerts_secret
+          deliver: telegram
+          deliver_only: true
+          prompt: "🤖 JARVIS · {event}\n{text}"

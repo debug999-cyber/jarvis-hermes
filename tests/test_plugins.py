@@ -483,3 +483,34 @@ def test_screenshot_ocr_via_peekaboo(monkeypatch, tmp_path):
     core = load_plugin("jarvis-core")
     monkeypatch.setattr(core.shutil, "which", lambda n: None)
     assert core.screen_ocr("/tmp/x.png") == []
+
+
+def test_triggers_push_to_hermes_webhook(tmp_path):
+    """Алерт триггера уходит в webhook-маршрут Hermes (deliver_only) с подписью generic HMAC V2 — как её проверяет gateway/platforms/webhook.py."""
+    import hashlib
+    import hmac
+    import http.server
+    import threading
+    core = load_plugin("jarvis-core")
+    got = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            got.update(path=self.path, body=body, ts=self.headers["X-Webhook-Timestamp"], sig=self.headers["X-Webhook-Signature-V2"], rid=self.headers["X-Request-ID"])
+            self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+        def log_message(self, *a): pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        tr = core.Triggers(state_file=tmp_path / "t.json", vault_root=tmp_path, webhook_url=f"http://127.0.0.1:{srv.server_port}/webhooks/jarvis-alerts", webhook_secret="s3cret")
+        assert tr.push("disk.low", "Мало места: 12 ГБ") is True
+    finally:
+        srv.shutdown()
+    payload = json.loads(got["body"])
+    assert got["path"] == "/webhooks/jarvis-alerts" and payload["event"] == "disk.low" and "12 ГБ" in payload["text"] and got["rid"].startswith("jarvis-disk.low-")
+    assert got["sig"] == hmac.new(b"s3cret", got["ts"].encode() + b"." + got["body"], hashlib.sha256).hexdigest()
+    # не настроено → тихий no-op; недоступный адрес → False без исключения
+    assert core.Triggers(state_file=tmp_path / "t2.json", vault_root=tmp_path).push("x", "y") is False
+    assert core.Triggers(state_file=tmp_path / "t3.json", vault_root=tmp_path, webhook_url="http://127.0.0.1:1/w").push("x", "y") is False

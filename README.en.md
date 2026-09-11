@@ -134,5 +134,5 @@ the full development history is in the [git log](https://github.com/debug999-cyb
 
 ## Status & license
 
-**1.10.0 — stable.** 125 automated tests (Linux + macOS, Python 3.11/3.12), `ruff`/`shellcheck`, a Swift build and a real
+**1.10.1 — stable.** 133 automated tests (Linux + macOS, Python 3.11/3.12), `ruff`/`shellcheck`, a Swift build and a real
 browser e2e run on every commit; every release ships a prebuilt JARVIS.app. MIT © 2026 ERTGYKI. Hermes Agent — MIT © Nous Research.

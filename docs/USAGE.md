@@ -141,6 +141,13 @@
 
 `HEARTBEAT.md` — обычный список; правьте руками или «JARVIS, добавь в heartbeat: напоминать пить воду после 15:00».
 Настройки триггеров — `plugins.jarvis-core` в config.yaml: `triggers`, `trigger_llm` (false = только уведомления), `disk_min_gb`, `idle_return_min`. В режимах focus/night срабатывает только срочное.
+
+**Алерты в Telegram/Discord/Slack** (когда вы не за Mac) — через готовый webhook Hermes с `deliver_only` (без вызова модели):
+1. `hermes gateway setup` → включите Webhook (или в `~/.hermes/.env`: `WEBHOOK_ENABLED=true`, `WEBHOOK_PORT=8644`).
+2. `hermes webhook subscribe jarvis-alerts --deliver telegram --deliver-only --prompt "🤖 JARVIS · {event}
+{text}"` (или заполните `secret` у маршрута `jarvis-alerts` в config.yaml — шаблон уже там).
+3. В `plugins.jarvis-core.settings`: `alerts_webhook: "http://127.0.0.1:8644/webhooks/jarvis-alerts"`, `alerts_secret: <тот же секрет>`.
+Проверка: `hermes webhook test jarvis-alerts --payload '{"event":"test","text":"проверка"}'`.
 Отключить heartbeat: `hermes cron remove <id>` или `JARVIS_HEARTBEAT=0 bash ~/.hermes/jarvis/setup_cron.sh` до установки.
 
 ### Focus macOS ↔ режим JARVIS
@@ -166,10 +173,12 @@ HUD — рабочий стол JARVIS в браузере (`jarvis hud` → htt
 
 | Виджет | Откуда данные | Что можно делать |
 |---|---|---|
-| **Сегодня** | Calendar.app (AppleScript, обновляется раз в 2 мин) | «Все события» — спросить JARVIS про сегодня/завтра |
-| **Знания** | `brain.db` плагина jarvis-brain | открыть базу знаний, поиск |
-| **Система** | `pmset` (батарея), Focus macOS, `config.yaml` (модель), `install.json` (версия) | переключить режим фокуса JARVIS |
-| **Таймеры** | общий `state.json` с `jarvis_timer` | добавить/отменить таймер прямо в HUD; срабатывает даже без запущенного агента |
+| **Сегодня** | Calendar.app (AppleScript, обновляется раз в 2 мин) | клик по событию — JARVIS расскажет, что о нём известно и что подготовить; «Все события» — сводка на сегодня/завтра |
+| **Знания** | `brain.db` плагина jarvis-brain | плитки **Заметки / Карточки / Файлы** открывают соответствующий раздел базы; полоска «Обработано» — запустить ревизию сейчас |
+| **Система** | `pmset` (батарея), Focus macOS, `config.yaml` (модель), `install.json` (версия) | **Батарея** — отчёт о заряде и «кто ест энергию»; **Вкл/Выкл** — режим фокуса; **Модель** — сводка `jarvis doctor` |
+| **Таймеры** | общий `state.json` с `jarvis_timer` | добавить/отменить таймер; при наведении — **+5 / +15 минут**; срабатывает даже без запущенного агента |
+
+В шапке: чип режима (**Фокус/Ночь/…**) переключает режим по кругу, индикатор **Hermes API** — проверка и подсказка как починить, **часы** — сводка «что сейчас». В базе знаний кликабельны карточки-сущности и недавние файлы хранилища.
 
 Если Календарь показывает «нет доступа» — Системные настройки → Конфиденциальность и безопасность → Автоматизация → разрешите Terminal (или JARVIS) управлять Calendar.
 

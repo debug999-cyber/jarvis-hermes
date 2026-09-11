@@ -15,6 +15,9 @@
                     если это первый раз за день после 06:00 → утренний брифинг; иначе — короткое «что изменилось»
   calendar.soon     приходит из Watchdog (событие через lead_min) — модель готовит справку
 
+Доставка: HUD + уведомление macOS; при настроенном alerts_webhook — ещё и в мессенджер через готовый
+webhook-маршрут Hermes с deliver_only (без модели, HMAC-подпись V2). Ничего своего для Telegram не пишем.
+
 Правила тишины: LLM-триггеры не чаще одного раза в cooldown_min (15) минут; в режимах focus/night
 срабатывают только urgent. Все состояния — в памяти процесса + небольшой файл triggers.json
 (чтобы после рестарта не сработал «вернулся» и «новый файл» на всё подряд).
@@ -23,6 +26,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -31,6 +36,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -40,8 +47,13 @@ HEARTBEAT_SKILL = "jarvis/heartbeat"
 
 class Triggers:
     def __init__(self, state_file: Path, vault_root: Path | None = None, disk_min_gb: int = 20, idle_min: int = 90,
-                 cooldown_min: int = 15, llm: bool = True, notify=None, emit=None, get_mode=None, runner=None):
+                 cooldown_min: int = 15, llm: bool = True, notify=None, emit=None, get_mode=None, runner=None,
+                 webhook_url: str = "", webhook_secret: str = ""):
         self.state_file = state_file
+        # Доставка вне Mac: Hermes webhook-маршрут с deliver_only (Telegram/Discord/Slack/… без вызова модели).
+        # См. config.jarvis.yaml → platforms.webhook.extra.routes.jarvis-alerts и docs/user-guide/messaging/webhooks.
+        self.webhook_url = webhook_url
+        self.webhook_secret = webhook_secret
         self.vault_root = vault_root or Path(os.environ.get("JARVIS_VAULT_DIR") or "~/JARVIS").expanduser()
         self.disk_min_gb = disk_min_gb
         self.idle_min = idle_min
@@ -142,6 +154,7 @@ class Triggers:
             fired.append(ev["kind"])
             if ev.get("text"):
                 self.emit("alert", {"kind": ev["kind"], "text": ev["text"]})
+                self.push(ev["kind"], ev["text"])
             if ev.get("llm") and self.llm_enabled and ev.get("prompt"):
                 if now - self.st.get("last_llm", 0) < self.cooldown:
                     logger.debug("trigger %s: cooldown", ev["kind"])
@@ -163,6 +176,26 @@ class Triggers:
             return
         self.notify("JARVIS", text[:230])
         self.emit("turn.end", {"text": text, "source": "cron", "trigger": ev["kind"]})
+        self.push(ev["kind"], text)
+
+    # ── доставка через Hermes webhook (deliver_only → мессенджер владельца) ──
+    def push(self, kind: str, text: str) -> bool:
+        """POST в шлюз Hermes: маршрут сам доставит текст в Telegram/Discord/… без LLM. Тихо пропускается, если не настроено."""
+        if not self.webhook_url or not text:
+            return False
+        body = json.dumps({"event": kind, "text": text, "source": "jarvis-triggers", "host": os.uname().nodename}, ensure_ascii=False).encode()
+        headers = {"Content-Type": "application/json", "X-Request-ID": f"jarvis-{kind}-{int(time.time())}"}
+        if self.webhook_secret:  # generic HMAC V2 из gateway/platforms/webhook.py: sha256(secret, "<ts>.<body>")
+            ts = str(int(time.time()))
+            headers["X-Webhook-Timestamp"] = ts
+            headers["X-Webhook-Signature-V2"] = hmac.new(self.webhook_secret.encode(), ts.encode() + b"." + body, hashlib.sha256).hexdigest()
+        try:
+            req = urllib.request.Request(self.webhook_url, data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return 200 <= r.status < 300
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            logger.debug("trigger push %s: %s", kind, e)
+            return False
 
     @staticmethod
     def _run_hermes(prompt: str) -> str | None:

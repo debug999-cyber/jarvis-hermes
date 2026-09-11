@@ -76,6 +76,10 @@
   .tile.cyan{color:var(--cyan)}.tile.violet{color:var(--violet)}.tile.green{color:var(--green)}.tile.amber{color:var(--amber)}
   .row{display:flex;align-items:center;gap:14px;padding:9px 8px;border-radius:14px}
   .row:hover{background:rgba(255,255,255,.025)}
+  .row.act,.stat.act,.chip.act,.tag.act,#status,#clock.act{cursor:pointer}
+  .row.act:hover{background:rgba(94,231,255,.06)} .stat.act:hover,.tag.act:hover{border-color:rgba(94,231,255,.35)}
+  .row .acts{display:none;gap:4px} .row:hover .acts{display:flex} .row .acts button{padding:3px 8px;border-radius:8px;background:rgba(255,255,255,.06);color:var(--text-2);font-size:11px}
+  .row .acts button:hover{color:var(--cyan)}
   .row .tx{flex:1;min-width:0}
   .row .tx b{display:block;font-weight:500;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .row .tx small{display:block;color:var(--text-2);font-size:12.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -397,7 +401,7 @@
   }
   function closeCard(id){ const el=cards.get(id); if(!el) return; el.classList.add('leaving'); setTimeout(()=>{ el.remove(); cards.delete(id); document.body.classList.toggle('has-center', !!centerCards.querySelector('.card')); }, 300); }
   function closeCenter(){ [...cards.keys()].forEach(id => { if (centerCards.contains(cards.get(id))) closeCard(id); }); }
-  function toast(text, icon='bell', tone='amber', ttl=10){ const el=document.createElement('div'); el.className='toast'; el.innerHTML=`<span class="tile ${tone}">${ICON[icon]}</span><span>${esc(text)}</span>`; $('#toasts').appendChild(el); setTimeout(()=>{el.style.opacity=0; setTimeout(()=>el.remove(),400)}, ttl*1000); }
+  function toast(text, icon='bell', tone='amber', ttl=10){ const el=document.createElement('div'); el.className='toast'; el.innerHTML=`<span class="tile ${tone}">${ICON[icon]||ICON.bell}</span><span>${esc(text)}</span>`; $('#toasts').appendChild(el); setTimeout(()=>{el.style.opacity=0; setTimeout(()=>el.remove(),400)}, ttl*1000); }
 
   // ───────────────────────── дашборд (реальные данные) ─────────────────────────
   let dash = {};
@@ -408,24 +412,30 @@
     if (ev === null) { b.innerHTML = '<div class="empty">Нет доступа к Календарю.<br><b>Системные настройки → Конфиденциальность → Автоматизация</b> — разрешите Terminal/JARVIS управлять Calendar.</div>'; return; }
     if (!ev.length) { b.innerHTML = '<div class="empty">Сегодня событий нет</div>'; return; }
     const nowHM = now(); const icons=[ICON.users, ICON.chart, ICON.cal, ICON.bolt]; const tones=['cyan','violet','green','amber'];
-    b.innerHTML = ev.slice(0,6).map((e,i) => { const past = !e.all_day && e.end < nowHM; return `<div class="row" style="${past?'opacity:.45':''}"><span class="tile ${tones[i%4]}">${icons[i%4]}</span><span class="tx"><b>${esc(e.title)}</b><small>${esc(e.calendar)}${e.all_day?' · весь день':' · до '+esc(e.end)}</small></span><span class="rt">${e.all_day?'—':esc(e.start)}<i class="${tones[i%4]}"></i></span></div>`; }).join('');
+    b.innerHTML = ev.slice(0,6).map((e,i) => { const past = !e.all_day && e.end < nowHM; return `<div class="row act" data-i="${i}" title="Подробнее у JARVIS" style="${past?'opacity:.45':''}"><span class="tile ${tones[i%4]}">${icons[i%4]}</span><span class="tx"><b>${esc(e.title)}</b><small>${esc(e.calendar)}${e.all_day?' · весь день':' · до '+esc(e.end)}</small></span><span class="rt">${e.all_day?'—':esc(e.start)}<i class="${tones[i%4]}"></i></span></div>`; }).join('');
+    b.querySelectorAll('.row.act').forEach(r => r.onclick = () => { const e = ev[+r.dataset.i]; send(`Расскажи про событие «${e.title}» ${e.all_day?'сегодня':'в '+e.start} (календарь ${e.calendar}): что известно из базы знаний, кто участвует, что подготовить. Кратко.`); });
   }
   function renderKnowledge(){
     const k = dash.brain, b = $('#knowBody');
     if (!k) { b.innerHTML = '<div class="empty">База знаний пока пуста.<br>Скажите <b>«запомни…»</b> — JARVIS начнёт её вести.</div>'; return; }
     const total = k.notes + k.pending, pct = total ? Math.round(k.notes/total*100) : 100;
-    b.innerHTML = `<div class="stats"><div class="stat"><small>Заметки</small><b>${k.notes}</b></div><div class="stat"><small>Карточки</small><b>${k.cards}</b></div><div class="stat" title="Файлы и проекты в ~/JARVIS"><small>Файлы</small><b>${k.files ?? 0}</b></div></div>
-      <div class="kbase"><div class="l"><span>Обработано</span><b>${pct}%</b></div><div class="prog"><i style="width:${pct}%"></i></div></div>`;
+    b.innerHTML = `<div class="stats"><div class="stat act" data-q="" title="Открыть базу знаний"><small>Заметки</small><b>${k.notes}</b></div><div class="stat act" data-q="#cards" title="Карточки"><small>Карточки</small><b>${k.cards}</b></div><div class="stat act" data-q="#files" title="Файлы и проекты в ~/JARVIS"><small>Файлы</small><b>${k.files ?? 0}</b></div></div>
+      <div class="kbase act" title="Необработанные диалоги — ночная ревизия превратит их в заметки; клик — запустить сейчас"><div class="l"><span>Обработано</span><b>${pct}%</b></div><div class="prog"><i style="width:${pct}%"></i></div></div>`;
+    b.querySelectorAll('.stat.act').forEach(el => el.onclick = () => showBrain(el.dataset.q));
+    b.querySelector('.kbase').onclick = () => { if (k.pending > 0) send('Проведи ревизию базы знаний по навыку brain-nightly-review прямо сейчас: разбери необработанные диалоги и дай краткий отчёт.'); else toast('Все диалоги уже разобраны', 'bell', 'green', 4); };
   }
   function renderSystem(){
     const b = $('#sysBody'), bt = dash.battery, f = dash.focus, mode = dash.mode||'normal', v = dash.version||{};
     const pct = bt ? bt.percent : null, tone = pct===null?'':pct<=20?'red':pct<=40?'amber':'green';
-    const battRow = `<div class="row sys"><span class="tile green">${ICON.batt}</span><span class="tx"><div style="display:flex;justify-content:space-between;align-items:center"><b>Батарея</b><span class="pct ${tone}">${pct===null?'—':pct+'%'}</span></div><div class="prog ${tone}"><i style="width:${pct??0}%"></i></div>${bt&&(bt.charging||bt.remaining)?`<small>${bt.charging?'заряжается':'осталось '+bt.remaining}</small>`:''}</span></div>`;
+    const battRow = `<div class="row sys act" id="battRow" title="Отчёт о батарее и энергопотреблении"><span class="tile green">${ICON.batt}</span><span class="tx"><div style="display:flex;justify-content:space-between;align-items:center"><b>Батарея</b><span class="pct ${tone}">${pct===null?'—':pct+'%'}</span></div><div class="prog ${tone}"><i style="width:${pct??0}%"></i></div>${bt&&(bt.charging||bt.remaining)?`<small>${bt.charging?'заряжается':'осталось '+bt.remaining}</small>`:''}</span></div>`;
     const focusOn = mode==='focus'; const fname = f && f.active ? f.name : '';
-    const focusRow = `<div class="row sys"><span class="tile violet">${ICON.moon}</span><span class="tx"><b>Режим фокуса</b><small>${focusOn?'JARVIS отвечает кратко':(fname?'macOS: '+esc(fname):'уведомления и подсказки включены')}</small></span><button class="pill ${focusOn?'on':''}" id="focusToggle">${focusOn?'Вкл':'Выкл'}</button></div>`;
-    const modelRow = `<div class="row sys"><span class="tile">${ICON.box}</span><span class="tx"><small style="margin:0 0 2px">Модель</small><b>${esc(dash.model||'—')}</b></span><span class="chev">${v.version?`<span class="muted" style="font-size:12px">v${esc(v.version)}</span>`:''}</span></div>`;
+    const focusRow = `<div class="row sys act" id="focusRow" title="Переключить режим фокуса"><span class="tile violet">${ICON.moon}</span><span class="tx"><b>Режим фокуса</b><small>${focusOn?'JARVIS отвечает кратко':(fname?'macOS: '+esc(fname):'уведомления и подсказки включены')}</small></span><button class="pill ${focusOn?'on':''}" id="focusToggle">${focusOn?'Вкл':'Выкл'}</button></div>`;
+    const modelRow = `<div class="row sys act" id="modelRow" title="Модель и версия JARVIS — клик: статус системы"><span class="tile">${ICON.box}</span><span class="tx"><small style="margin:0 0 2px">Модель</small><b>${esc(dash.model||'—')}</b></span><span class="chev">${v.version?`<span class="muted" style="font-size:12px">v${esc(v.version)}</span>`:''}</span></div>`;
     b.innerHTML = battRow + focusRow + modelRow;
-    $('#focusToggle').onclick = async () => { const m = focusOn?'normal':'focus'; dash.mode = m; renderSystem(); await post('/api/mode',{mode:m}); };
+    $('#focusToggle').onclick = async e => { e.stopPropagation(); const m = focusOn?'normal':'focus'; dash.mode = m; renderSystem(); await post('/api/mode',{mode:m}); };
+    $('#focusRow').onclick = () => $('#focusToggle').click();
+    $('#battRow').onclick = () => send('Что с батареей: заряд, состояние здоровья, циклы, кто больше всего ест энергию сейчас? Кратко.');
+    $('#modelRow').onclick = () => send('Статус системы одной сводкой: версия JARVIS и Hermes, модель, доступно ли обновление, что не так по jarvis doctor.');
     $('#modeChip').textContent = {focus:'Фокус', night:'Ночь', presentation:'Презентация'}[mode]||''; $('#modeChip').classList.toggle('show', mode!=='normal');
     document.body.classList.toggle('night', mode==='night');
     $('#updChip').classList.toggle('show', !!v.update_available); if (v.latest) $('#updChip').textContent = 'Обновление ' + v.latest;
@@ -433,8 +443,9 @@
   function renderTimers(){
     const b = $('#timersBody'), ts = dash.timers||[];
     if (!ts.length) { b.innerHTML = '<div class="empty">Нет активных таймеров</div>'; return; }
-    b.innerHTML = ts.map((t,i) => `<div class="row" data-target="${esc(t.target)}"><span class="ring ${i%2?'violet':''}">${ICON.play}</span><span class="tx"><b>${esc(t.label)}</b><small class="left" data-s="${t.seconds}">${fmtLeft(t.seconds)}</small></span><button class="xbtn" title="Отменить" data-label="${esc(t.label)}">${ICON.x}</button></div>`).join('');
+    b.innerHTML = ts.map((t,i) => `<div class="row" data-target="${esc(t.target)}"><span class="ring ${i%2?'violet':''}">${ICON.play}</span><span class="tx"><b>${esc(t.label)}</b><small class="left" data-s="${t.seconds}">${fmtLeft(t.seconds)}</small></span><span class="acts"><button class="ext" data-m="5" title="Продлить на 5 минут">+5</button><button class="ext" data-m="15" title="Продлить на 15 минут">+15</button></span><button class="xbtn" title="Отменить" data-label="${esc(t.label)}">${ICON.x}</button></div>`).join('');
     b.querySelectorAll('.xbtn').forEach(x => x.onclick = async () => { await post('/api/timer',{action:'cancel', label:x.dataset.label, target:x.closest('.row').dataset.target}); loadDash(); });
+    b.querySelectorAll('.ext').forEach(x => x.onclick = async () => { const row = x.closest('.row'), t = ts.find(t => t.target === row.dataset.target); if (!t) return; const r = await post('/api/timer',{action:'extend', label:t.label, target:t.target, minutes:+x.dataset.m}); toast(r && r.ok ? `${t.label}: +${x.dataset.m} мин` : `Таймер «${t.label}» уже сработал или удалён`, 'bell', r && r.ok ? 'cyan' : 'red', 3); loadDash(); });
   }
   setInterval(() => { document.querySelectorAll('#timersBody .left').forEach(el => { const s = Math.max(0, +el.dataset.s - 1); el.dataset.s = s; el.textContent = fmtLeft(s); }); }, 1000);
   function renderAll(){ renderCalendar(); renderKnowledge(); renderSystem(); renderTimers(); }
@@ -449,6 +460,12 @@
   $('#timerAdd').onclick = () => { $('#tform').classList.toggle('show'); $('#tMin').focus(); };
   $('#tform').onsubmit = async e => { e.preventDefault(); const m = +$('#tMin').value; if (!m) return; await post('/api/timer',{action:'set', minutes:m, label:$('#tLabel').value||`Таймер ${m} мин`}); $('#tform').classList.remove('show'); $('#tMin').value=''; $('#tLabel').value=''; loadDash(); };
   $('#updChip').onclick = () => send('Обнови JARVIS до последней версии.');
+  $('#updChip').classList.add('act'); $('#modeChip').classList.add('act'); $('#status').classList.add('act'); $('#clock').classList.add('act');
+  // чип режима: по кругу focus → night → normal (то же, что jarvis_mode)
+  $('#modeChip').title = 'Сменить режим'; $('#modeChip').onclick = async () => { const next = {focus:'night', night:'normal', presentation:'normal'}[dash.mode] || 'focus'; dash.mode = next; renderSystem(); await post('/api/mode',{mode:next}); toast('Режим: ' + ({focus:'фокус', night:'ночь', normal:'обычный'}[next]), 'moon', 'violet', 3); };
+  // индикатор Hermes API: клик — диагностика или запуск
+  $('#status').title = 'Состояние Hermes API — клик: проверить'; $('#status').onclick = async () => { try { const st = await (await fetch('/api/status')).json(); const up = st.hermes && st.hermes.ok; toast(up ? `Hermes API работает · модель ${st.model||''} · TTS ${st.tts||''}` : 'Hermes API не отвечает. В терминале: jarvis gateway restart  (или jarvis doctor --fix)', up?'bell':'bolt', up?'green':'red', 8); } catch { toast('HUD-сервер не отвечает', 'bolt', 'red', 6); } };
+  $('#clock').title = 'Сводка дня'; $('#clock').onclick = () => send('Дай краткую сводку на сейчас: время, ближайшее событие, активные таймеры, погода. Две-три фразы.');
 
   // ───────────────────────── лента активности ─────────────────────────
   const feed = [];
@@ -458,20 +475,24 @@
 
   // ───────────────────────── база знаний ─────────────────────────
   async function showBrain(q){
+    const focus = q === '#cards' ? 'cards' : q === '#files' ? 'files' : ''; if (focus) q = '';
     let b; try { b = await (await fetch('/api/brain' + (q ? '?q=' + encodeURIComponent(q) : ''))).json(); } catch { return; }
     const search = `<form class="search" id="brainSearch"><input placeholder="Поиск по базе знаний…" value="${esc(q)}"><button class="pill on" type="submit">Найти</button></form>`;
     let body;
     if (!b.ok) body = search + '<div class="empty">База знаний пока пуста. Скажите JARVIS <b>«запомни, что…»</b> или просто общайтесь — он сам заведёт заметки.</div>';
     else {
       const list = (b.search || b.recent).map(n=>`<li><span class="muted" style="font-size:12px">${esc(n.kind)}${n.entity?' · '+esc(n.entity):''}</span><br>${esc(n.content)}</li>`).join('') || '<li class="muted">Ничего не найдено</li>';
-      const ents = b.top_entities.map(e=>`<span class="tag">${esc(e.name)}<b>${e.notes}</b></span>`).join('');
+      const ents = b.top_entities.map(e=>`<span class="tag act" data-q="${esc(e.name)}" title="Всё про ${esc(e.name)}">${esc(e.name)}<b>${e.notes}</b></span>`).join('');
       const diary = b.diary.map(d=>`<li><b>${esc(d.day)}</b> — ${esc(d.summary)}</li>`).join('');
-      const vault = b.vault ? `<div class="sec">Хранилище файлов · ${b.vault.files}</div>` + (b.vault.sources.length?b.vault.sources.map(s=>`<span class="tag">${esc(s.name)}</span>`).join(''):'') + (b.vault.recent.length?`<ul>${b.vault.recent.map(f=>`<li class="muted" style="font-size:12px">${esc(f.rel)}</li>`).join('')}</ul>`:'<div class="muted" style="font-size:12px">Пусто — положите файлы в ~/JARVIS или <code>jarvis vault add ~/Projects/…</code></div>') : '';
-      body = search + `<div class="sec">${q?'Результаты':'Недавнее'}</div><ul>${list}</ul>` + (ents?`<div class="sec">Карточки</div>${ents}`:'') + vault + (diary?`<div class="sec">Дневник</div><ul>${diary}</ul>`:'') +
+      const vault = b.vault ? `<div class="sec">Хранилище файлов · ${b.vault.files}</div>` + (b.vault.sources.length?b.vault.sources.map(s=>`<span class="tag">${esc(s.name)}</span>`).join(''):'') + (b.vault.recent.length?`<ul>${b.vault.recent.map(f=>`<li class="muted act" data-file="${esc(f.rel)}" title="Открыть у JARVIS" style="font-size:12px;cursor:pointer">${esc(f.rel)}</li>`).join('')}</ul>`:'<div class="muted" style="font-size:12px">Пусто — положите файлы в ~/JARVIS или <code>jarvis vault add ~/Projects/…</code></div>') : '';
+      const notesSec = `<div class="sec">${q?'Результаты':'Недавнее'}</div><ul>${list}</ul>`, cardsSec = ents?`<div class="sec">Карточки</div>${ents}`:'', diarySec = diary?`<div class="sec">Дневник</div><ul>${diary}</ul>`:'';
+      body = search + (focus==='cards' ? cardsSec + notesSec : focus==='files' ? vault + notesSec : notesSec + cardsSec + vault) + (focus==='files'?'':diarySec) +
         `<div class="sec">Статус</div><div class="kv"><span>Заметок · карточек · дней</span><b>${b.notes} · ${b.entities} · ${b.episodes}</b></div><div class="kv"><span>Последняя ревизия</span><b>${b.last_review? esc(b.last_review.finished_at.slice(0,16).replace('T',' ')) : 'ещё не было'}</b></div>`;
     }
     card('brain', {title: 'База знаний', icon:'<svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v16H6.5A2.5 2.5 0 0 0 4 21z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v16h5.5a2.5 2.5 0 0 1 2.5 2z"/></svg>', html: body});
     $('#brainSearch').onsubmit = e => { e.preventDefault(); showBrain(e.target.querySelector('input').value); };
+    cards.get('brain').querySelectorAll('.tag.act').forEach(t => t.onclick = () => showBrain(t.dataset.q));
+    cards.get('brain').querySelectorAll('li.act[data-file]').forEach(li => li.onclick = () => send(`Открой из хранилища файл «${li.dataset.file}» и кратко скажи, что в нём.`));
   }
 
   // ───────────────────────── панели от агента ─────────────────────────
@@ -617,7 +638,7 @@
 
   // ───────────────────────── клавиши ─────────────────────────
   function showHelp(){
-    card('help', {title:'Клавиши', html: `<div class="kv"><span>Пробел (удерживать) / клик по сфере</span><b>говорить</b></div><div class="kv"><span>Enter</span><b>отправить</b></div><div class="kv"><span>K</span><b>база знаний</b></div><div class="kv"><span>A</span><b>лента активности</b></div><div class="kv"><span>T</span><b>озвучивать ответы</b></div><div class="kv"><span>H</span><b>скрыть/показать панели</b></div><div class="kv"><span>Esc</span><b>замолчать / очистить</b></div><div class="kv"><span>/</span><b>в строку ввода</b></div>`});
+    card('help', {title:'Клавиши', html: `<div class="kv"><span>Пробел (удерживать) / клик по сфере</span><b>говорить</b></div><div class="kv"><span>Enter</span><b>отправить</b></div><div class="kv"><span>K</span><b>база знаний</b></div><div class="kv"><span>A</span><b>лента активности</b></div><div class="kv"><span>T</span><b>озвучивать ответы</b></div><div class="kv"><span>H</span><b>скрыть/показать панели</b></div><div class="kv"><span>Клик по событию, батарее, модели, часам</span><b>спросить JARVIS</b></div><div class="kv"><span>Клик по чипу режима / индикатору Hermes</span><b>сменить режим / проверить API</b></div><div class="kv"><span>Esc</span><b>замолчать / очистить</b></div><div class="kv"><span>/</span><b>в строку ввода</b></div>`});
   }
   $('#helpBtn').onclick = showHelp;
   addEventListener('keydown', e => {

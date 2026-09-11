@@ -218,7 +218,7 @@ def test_dashboard_plugin_files():
     m = json.loads((dash / "manifest.json").read_text())
     assert m["name"] == "jarvis-brain" and m["tab"]["path"].startswith("/") and (dash / m["entry"]).exists()
     assert (dash / m["api"]).exists() and (dash / m["css"]).exists()
-    js = (dash / "dist" / "index.js").read_text()
+    js = (dash / "ui" / "index.js").read_text()
     assert "__HERMES_PLUGIN_SDK__" in js and '__HERMES_PLUGINS__.register("jarvis-brain"' in js and "ERTGYKI" in js
     theme = yaml.safe_load((ROOT / "dashboard-themes" / "jarvis.yaml").read_text())
     assert theme["name"] == "jarvis" and theme["palette"]["background"].startswith("#")

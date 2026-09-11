@@ -194,3 +194,33 @@ def test_tts_clean_and_cache(tmp_path, monkeypatch):
     assert tts.synthesize("Привет") == (b"mp3", "audio/mpeg")
     assert tts.synthesize("Привет") == (b"mp3", "audio/mpeg")
     assert calls == ["Привет"], "второй вызов должен прийти из кэша"
+
+
+def test_timer_extend_api(srv, state_dir):
+    """Кнопки +5/+15 на HUD: action=extend сдвигает target общего state.json; неизвестный таймер → 404."""
+    import json as _j
+    import urllib.request
+    def post(body):
+        req = urllib.request.Request(srv + "/api/timer", data=_j.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, _j.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, _j.loads(e.read())
+    st, made = post({"action": "set", "minutes": 10, "label": "Чай"})
+    assert st == 200
+    st, out = post({"action": "extend", "label": "Чай", "target": made["target"], "minutes": 5})
+    assert st == 200 and out["extended"] == 1
+    import datetime as dt
+    timers = _j.loads((state_dir / "state.json").read_text())["timers"]
+    assert dt.datetime.fromisoformat(timers[0]["target"]) - dt.datetime.fromisoformat(made["target"]) == dt.timedelta(minutes=5)
+    assert post({"action": "extend", "label": "Нет такого", "minutes": 5})[0] == 404
+
+
+def test_hud_has_no_dead_elements():
+    """Всё, что выглядит кликабельным на HUD, имеет обработчик (аудит 1.10.1): календарь, плитки знаний, батарея/модель, шапка, +5/+15."""
+    html = (ROOT / "hud" / "static" / "index.html").read_text()
+    for needle in ["b.querySelectorAll('.row.act')", "b.querySelectorAll('.stat.act')", "$('#battRow').onclick", "$('#modelRow').onclick",
+                   "$('#modeChip').onclick", "$('#status').onclick", "$('#clock').onclick", "b.querySelectorAll('.ext')",
+                   "action:'extend'", ".tag.act", "li.act[data-file]", ".row.act,.stat.act,.chip.act,.tag.act,#status,#clock.act{cursor:pointer}"]:
+        assert needle in html, needle

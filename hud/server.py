@@ -363,6 +363,14 @@ class Handler(BaseHTTPRequestHandler):
             n = sysinfo.cancel_timer(str(body.get("label", "")), body.get("target"))
             BUS.publish({"event": "timer.update", "data": {"timers": sysinfo.timers()}})
             return self._json(200, {"ok": True, "cancelled": n})
+        if action == "extend":
+            try:
+                minutes = max(1, min(180, float(body.get("minutes") or 5)))
+            except (TypeError, ValueError):
+                minutes = 5
+            n = sysinfo.extend_timer(str(body.get("label", "")), body.get("target"), minutes)
+            BUS.publish({"event": "timer.update", "data": {"timers": sysinfo.timers()}})
+            return self._json(200 if n else 404, {"ok": bool(n), "extended": n})
         if action == "set":
             label = (str(body.get("label") or "").strip() or "Таймер")[:60]
             try:

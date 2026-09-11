@@ -5,7 +5,7 @@
   "icon": "Database",
   "version": "1.0.0",
   "tab": { "path": "/jarvis-brain", "position": "after:skills" },
-  "entry": "dist/index.js",
-  "css": "dist/style.css",
+  "entry": "ui/index.js",
+  "css": "ui/style.css",
   "api": "plugin_api.py"
 }

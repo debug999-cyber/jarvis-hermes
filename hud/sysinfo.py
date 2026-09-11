@@ -158,6 +158,23 @@ def cancel_timer(label: str, target: str | None = None) -> int:
         return len(before) - len(d["timers"])
 
 
+def extend_timer(label: str, target: str | None, minutes: float) -> int:
+    """Продлить таймер на N минут (кнопки +5/+15 на HUD). Возвращает число изменённых таймеров."""
+    with _LOCK:
+        d = _read_json(STATE_FILE, {})
+        n = 0
+        for t in d.get("timers", []):
+            if t.get("label") == label and (target is None or t.get("target") == target):
+                try:
+                    t["target"] = (dt.datetime.fromisoformat(t["target"]) + dt.timedelta(minutes=minutes)).isoformat()
+                    n += 1
+                except (KeyError, ValueError):
+                    continue
+        if n:
+            _write_json(STATE_FILE, d)
+        return n
+
+
 def get_mode() -> str:
     return _read_json(STATE_FILE, {}).get("mode", "normal")
 

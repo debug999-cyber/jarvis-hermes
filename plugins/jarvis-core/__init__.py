@@ -653,7 +653,9 @@ def register(ctx) -> None:
         if _cfg.get("triggers", True):
             trig = Triggers(state_file=state._path().parent / "triggers.json",
                             disk_min_gb=int(_cfg.get("disk_min_gb") or 20), idle_min=int(_cfg.get("idle_return_min") or 90),
-                            llm=bool(_cfg.get("trigger_llm", True)), notify=Watchdog.notify, emit=_hud.emit, get_mode=state.get_mode)
+                            llm=bool(_cfg.get("trigger_llm", True)), notify=Watchdog.notify, emit=_hud.emit, get_mode=state.get_mode,
+                            webhook_url=str(_cfg.get("alerts_webhook") or ""),
+                            webhook_secret=str(_cfg.get("alerts_secret") or os.environ.get("JARVIS_ALERTS_SECRET") or ""))
         _watchdog = Watchdog(battery_threshold=int(_cfg.get("battery_threshold") or 20),
                              watch_calendar=bool(_cfg.get("watch_calendar")),
                              follow_focus=bool(_cfg.get("follow_focus", True)),
