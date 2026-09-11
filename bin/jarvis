@@ -162,6 +162,8 @@ case "$cmd" in
               sqlite3 "$BRAIN_DB" "SELECT 'notes: '||COUNT(*) FROM notes WHERE status='active'; SELECT 'entities: '||COUNT(*) FROM entities WHERE status='active'; SELECT 'episodes: '||COUNT(*) FROM episodes; SELECT 'pending turns: '||COUNT(*) FROM turns WHERE digested=0; SELECT 'last review: '||COALESCE(MAX(finished_at),'—') FROM reviews;"
               echo "file: $BRAIN_DB ($(du -k "$BRAIN_DB" | cut -f1) KB)  ·  markdown: $HERMES_HOME/jarvis/BRAIN.md" ;;
     esac ;;
+  credits|--credits|author)
+    printf '\n  \033[1;36mJ.A.R.V.I.S.\033[0m on Hermes Agent\n  created by \033[1mERTGYKI\033[0m · github.com/debug999-cyber · since 2026-09-10\n  \033[2m«Sometimes you gotta run before you can walk.»\033[0m\n\n'; exit 0 ;;
   shortcuts) exec "$PY" "$JARVIS_HOME/make_shortcuts.py" "$@" ;;
   vault)
     VAULT_PY="$HERMES_HOME/plugins/jarvis-brain/vault.py"

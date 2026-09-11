@@ -324,6 +324,12 @@
     g.addColorStop(0,cyan); g.addColorStop(.3,`hsl(${200-hue*20},95%,68%)`); g.addColorStop(.72,`hsl(${235-hue*10},80%,58%)`); g.addColorStop(1,'hsl(255,65%,38%)');
     cx2.beginPath(); cx2.arc(c,c,rr,0,Math.PI*2); cx2.fillStyle=g; cx2.fill();
     // зерно
+    if (sigUntil > performance.now()) {   // подпись создателя (Konami)
+      if (!window._sigPts) { const oc=document.createElement('canvas'); oc.width=240; oc.height=60; const o=oc.getContext('2d'); o.font='bold 40px -apple-system,Helvetica'; o.textAlign='center'; o.fillText('ERTGYKI',120,45); const d=o.getImageData(0,0,240,60).data, pts=[]; for(let y=0;y<60;y+=2)for(let x=0;x<240;x+=2) if(d[(y*240+x)*4+3]>128) pts.push({x:(x-120)/120,y:(y-30)/120}); window._sigPts=pts; }
+      const pts=window._sigPts, k=Math.min(1,(sigUntil-performance.now())/600), R=cv.width/(devicePixelRatio||1)/2;
+      cx2.fillStyle=`rgba(94,231,255,${.9*k})`; particles.forEach((p,i)=>{ const q=pts[i%pts.length]; cx2.beginPath(); cx2.arc(R+q.x*R*.9, R+q.y*R*.9, 1.2, 0, 7); cx2.fill(); });
+      requestAnimationFrame(draw); return;
+    }
     for (const p of particles){
       const ang = p.a + t*.00004*(1+p.r), x = c + Math.cos(ang)*p.r*rr, y = c + Math.sin(ang)*p.r*rr*.98;
       const tw = .35 + .65*Math.abs(Math.sin(t*.001*p.s + p.o*7));
@@ -628,6 +634,10 @@
     else if (k==='/' || k==='.') { e.preventDefault(); input.focus(); }
   });
   addEventListener('keyup', e => { if (e.code==='Space' && holding) { holding=false; stopListen(); } });
+  // ↑↑↓↓←→←→ B A — сфера на 12 секунд выкладывает частицами подпись создателя (см. AUTHORS.md)
+  const _kc = [38,38,40,40,37,39,37,39,66,65]; let _ki = 0, sigUntil = 0;
+  addEventListener('keydown', e => { _ki = (e.keyCode === _kc[_ki]) ? _ki + 1 : 0; if (_ki === _kc.length) { _ki = 0; sigUntil = performance.now() + 12000; log('ok', atob('0KHQvtC30LTQsNGC0LXQu9GMIOKAlCBFUlRHWUtJ')); } });
+  console.log('%cJ.A.R.V.I.S.%c on Hermes Agent · created by ERTGYKI (github.com/debug999-cyber) · «Sometimes you gotta run before you can walk.»', 'color:#5ee7ff;font-weight:700;font-size:14px', 'color:#8aa');
   const applyHash = () => { const h=(location.hash||'').slice(1); if (h==='brain') showBrain(''); if (h==='activity') renderActivity(); };
   addEventListener('hashchange', applyHash); setTimeout(applyHash, 800);
 

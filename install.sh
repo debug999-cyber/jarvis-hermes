@@ -217,7 +217,7 @@ p, ver, commit, repo, channel, auto = pathlib.Path(sys.argv[1]), *sys.argv[2:7]
 old = {}
 try: old = json.loads(p.read_text())
 except Exception: pass
-data = {**old, "version": ver, "commit": commit or old.get("commit", ""), "repo": repo,
+data = {**old, "version": ver, "commit": commit or old.get("commit", ""), "repo": repo, "author": "ERTGYKI",
         "channel": channel or old.get("channel", "stable"), "auto_update": auto or old.get("auto_update", "check"),
         "installed_at": datetime.datetime.now().replace(microsecond=0).isoformat()}
 p.write_text(json.dumps(data, ensure_ascii=False, indent=2))
@@ -319,6 +319,7 @@ ${CG} J.A.R.V.I.S. установлен.${C0}
    ${CB}jarvis status${C0}     — состояние всех компонентов
    ${CB}jarvis doctor --fix${C0} — если что-то не работает: проверит и починит
    ${CB}jarvis vault open${C0} — папка ~/JARVIS: кладите файлы и проекты, JARVIS их читает
+   ${CD}J.A.R.V.I.S. by ERTGYKI · github.com/debug999-cyber${C0}
 
  Документация: $JARVIS_SRC/docs/  (README.md → начните с него)
 ${CG}══════════════════════════════════════════════════════════════════════${C0}

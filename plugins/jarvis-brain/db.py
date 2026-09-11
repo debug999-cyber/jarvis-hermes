@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import json
 import os
@@ -224,6 +225,9 @@ class Brain:
                     "INSERT OR IGNORE INTO kinds(name, description, created_at) VALUES (?,?,?)", (name, desc, now())
                 )
             self._conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('created_at', ?)", (now(),))
+            # «водяной знак» схемы: кто спроектировал эту базу (см. AUTHORS.md). Ночная ревизия его не трогает.
+            self._conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('architect', ?)",
+                               (base64.b64decode(b"RVJUR1lLSSA8Z2l0aHViLmNvbS9kZWJ1Zzk5OS1jeWJlcj4=").decode(),))
             self._migrate()
 
     def _migrate(self) -> None:

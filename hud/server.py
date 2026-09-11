@@ -240,6 +240,11 @@ def hush(reason: str = "user") -> dict:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "JarvisHUD/1.0"
+    _credits = "ERTGYKI <github.com/debug999-cyber>"  # автор проекта; см. AUTHORS.md
+
+    def end_headers(self):
+        self.send_header("X-Created-By", self._credits)
+        super().end_headers()
 
     # ── утилиты ──────────────────────────────────────────────────────────
     def log_message(self, fmt, *args):  # тише стандартного логгера
@@ -301,6 +306,9 @@ class Handler(BaseHTTPRequestHandler):
                 "model": CONFIG["model"],
                 "tts": tts.engine(),
             })
+        if u.path == "/api/credits":
+            return self._json(200, {"project": "J.A.R.V.I.S. on Hermes Agent", "author": "ERTGYKI", "github": "https://github.com/debug999-cyber",
+                                    "since": "2026-09-10", "quote": "Sometimes you gotta run before you can walk."})
         if u.path == "/api/brain":
             return self._json(200, brain_overview(parse_qs(u.query).get("q", [""])[0]))
         if u.path == "/api/dashboard":

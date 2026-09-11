@@ -216,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("Мастер настройки…", #selector(wizard))
         m.addItem(.separator())
         add("Открыть на GitHub", #selector(github))
+        add("О JARVIS…", #selector(about))
         add("Выйти из JARVIS.app", #selector(quit), key: "q")
         item.menu = m
     }
@@ -234,6 +235,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func perms() { run(jarvisBin, ["perms"]) }
     @objc func github() { let inst = readJSON(jarvisHome + "/install.json"); let repo = inst["repo"] as? String ?? "debug999-cyber/jarvis-hermes"; NSWorkspace.shared.open(URL(string: "https://github.com/\(repo)")!) }
     @objc func quit() { NSApp.terminate(nil) }
+    @objc func about() {
+        let a = NSAlert(); a.messageText = "J.A.R.V.I.S. \(version)"
+        a.informativeText = "Just A Rather Very Intelligent System\n\nСоздал ERTGYKI · github.com/debug999-cyber\nЯдро: Hermes Agent © Nous Research (MIT)\n\n«Sometimes you gotta run before you can walk.»"
+        a.addButton(withTitle: "OK"); NSApp.activate(ignoringOtherApps: true); a.runModal()
+    }
 
     @objc func toggleServices() {
         if hudUp && apiUp {

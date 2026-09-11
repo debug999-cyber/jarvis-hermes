@@ -174,3 +174,22 @@ def test_install_json_written_by_installer_snippet(tmp_path):
     subprocess.run([sys.executable, "-", str(p), "1.7.0", "", "x/y", "", ""], input=snippet, text=True, check=True)
     d = json.loads(p.read_text())
     assert d["version"] == "1.7.0" and d["channel"] == "main" and d["auto_update"] == "auto" and d["commit"] == "old"
+
+
+def test_authorship_marks_present():
+    """Метки авторства (см. AUTHORS.md) присутствуют во всех слоях: лицензия, HUD, база, CLI, личность, приложение."""
+    root = ROOT if "ROOT" in globals() else Path(__file__).resolve().parents[1]
+    checks = {
+        "LICENSE": "ERTGYKI",
+        "hud/server.py": "X-Created-By",
+        "hud/static/index.html": "created by ERTGYKI",
+        "plugins/jarvis-brain/db.py": "RVJUR1lLSSA8Z2l0aHViLmNvbS9kZWJ1Zzk5OS1jeWJlcj4=",
+        "bin/jarvis": "credits|--credits|author",
+        "config/SOUL.md": "ERTGYKI",
+        "app/JarvisMenuBar.swift": "Создал ERTGYKI",
+        "CITATION.cff": "debug999-cyber",
+    }
+    for rel, needle in checks.items():
+        assert needle in (root / rel).read_text(encoding="utf-8"), rel
+    import base64
+    assert base64.b64decode("RVJUR1lLSSA8Z2l0aHViLmNvbS9kZWJ1Zzk5OS1jeWJlcj4=").decode() == "ERTGYKI <github.com/debug999-cyber>"
