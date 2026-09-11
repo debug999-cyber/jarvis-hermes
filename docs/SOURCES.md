@@ -21,6 +21,12 @@
 | https://github.com/NousResearch/hermes-agent/tree/main/optional-mcps | Каталог MCP Hermes (`hermes mcp install …`) — проверено: Apple-приложений там нет, поэтому CLI-путь |
 | https://github.com/steipete/macos-automator-mcp | Резерв: MCP с 200+ рецептами AppleScript/JXA, если понадобится произвольная автоматизация вместо `mac_applescript` |
 
+| https://github.com/NousResearch/hermes-agent/tree/main/plugins/memory/holographic | провайдер памяти Holographic: схема `facts` (FTS5, trust), `MemoryStore.add_fact/update_fact/list_facts`, конфиг `plugins.hermes-memory-store` — основа `facts.py` и `migrate_brain.py` (1.10) |
+| https://hermes-agent.nousresearch.com/docs/user-guide/features/extending-the-dashboard | манифест вкладки панели, `window.__HERMES_PLUGIN_SDK__`, FastAPI `router` под `/api/plugins/<name>/`, схема тем YAML — `plugins/jarvis-brain/dashboard/`, `dashboard-themes/jarvis.yaml` (1.10) |
+| https://hermes-agent.nousresearch.com/docs/user-guide/profile-distributions | `distribution.yaml`, `distribution_owned`, `hermes profile install/update` — `distribution.yaml` + `scripts/sync_distribution.py` (1.10) |
+| https://github.com/openclaw/openclaw/tree/main/skills/weather | приём «погода без ключа через wttr.in ?format=j2» — `skills/weather/SKILL.md` (1.9.1) |
+| https://github.com/openclaw/Peekaboo/blob/main/docs/commands/see.md | `see --ocr --json` → `data.ui_elements[]` — `native.screen_text` / `mac_screenshot(ocr=true)` (1.9.1) |
+
 ## 1. Hermes Agent — ядро, на котором всё построено
 
 | Источник | Что взято |

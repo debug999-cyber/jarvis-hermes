@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.10.0 — память на провайдере Hermes, вкладка в панели Hermes, дистрибутив профиля
+
+Третья волна «своё → готовое» (план в `docs/AUDIT.md`).
+
+- **Память фактов — официальный провайдер Hermes Holographic** (`memory.provider: holographic`, `~/.hermes/memory_store.db`,
+  инструменты `fact_store`/`fact_feedback`). Новый `plugins/jarvis-brain/facts.py`: каждая `brain_remember` зеркалится в факты
+  (категория по типу, теги `jarvis:<kind>,<карточка>`, trust = уверенность), `brain_recall` возвращает `hermes_facts`, контекст
+  хода не дублирует то, что провайдер подмешивает сам. Свои у JARVIS остаются карточки, связи, дневник, история, ревизия, vault.
+- **Перенос без потерь**: `jarvis brain migrate` / `scripts/migrate_brain.py` — все активные заметки `brain.db` → факты; идемпотентно,
+  повторный запуск ничего не дублирует; `install.sh` выполняет перенос сам при обновлении. `jarvis doctor` → «Память Hermes (holographic)».
+- **Вкладка «База знаний» в web-панели Hermes** (`hermes dashboard`): `plugins/jarvis-brain/dashboard/` — `manifest.json`, JS на официальном
+  Plugin SDK (без сборки), FastAPI-маршрут `/api/plugins/jarvis-brain/overview`. Общий read-only код `overview.py` теперь используют и HUD, и панель.
+- **Тема JARVIS для панели Hermes** — `dashboard-themes/jarvis.yaml` (палитра HUD), ставится в `~/.hermes/dashboard-themes/`.
+- **Дистрибутив профиля Hermes**: `distribution.yaml` в корне → `hermes profile install github.com/debug999-cyber/jarvis-hermes --alias`,
+  `hermes profile update jarvis`. `scripts/sync_distribution.py` держит корневые `SOUL.md`/`config.yaml` в согласии с `config/` (тест следит).
+- HUD `/api/brain` дополнительно отдаёт `hermes_facts`.
+
 ## 1.9.1 — вторая волна замен: Computer Use, OCR, Hermes Desktop, навык погоды
 
 - **Computer Use Hermes вместо своего ввода**: toolset `computer_use` (cua-driver от trycua/cua) включён в конфиге, `install.sh`

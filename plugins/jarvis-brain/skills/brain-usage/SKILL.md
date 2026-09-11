@@ -25,6 +25,13 @@ metadata:
 
 Формулировка: третье лицо, конкретно, одна мысль. Плохо: «нравится». Хорошо: «Пользователь предпочитает тёмную тему во всех редакторах».
 
+## Two layers (since 1.10)
+- Факты зеркалятся в память Hermes (`fact_store`, провайдер holographic) автоматически — отдельный `fact_store(add)` после
+  `brain_remember` не нужен. Ответ `brain_remember` содержит `fact_id`.
+- `brain_recall` возвращает `hermes_facts` — совпадения из памяти Hermes. Использовал факт → `fact_feedback(helpful, fact_id)`;
+  устарел → `fact_feedback(unhelpful, fact_id)` + исправь заметку.
+- Карточки, связи, дневник, история — только у JARVIS (`brain_entity`, `brain_history`, `brain_review(episodes)`).
+
 ## When to recall (brain_recall)
 - Перед вопросом «а как вы обычно…», «кто такой X», «какой у нас стек» — сначала recall.
 - Перед письмом/сообщением человеку — recall по имени (тон, контекст, договорённости).

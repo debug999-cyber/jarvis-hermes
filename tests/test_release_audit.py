@@ -193,3 +193,32 @@ def test_authorship_marks_present():
         assert needle in (root / rel).read_text(encoding="utf-8"), rel
     import base64
     assert base64.b64decode("RVJUR1lLSSA8Z2l0aHViLmNvbS9kZWJ1Zzk5OS1jeWJlcj4=").decode() == "ERTGYKI <github.com/debug999-cyber>"
+
+
+# ── дистрибутив профиля Hermes ───────────────────────────────────────────
+
+def test_distribution_in_sync():
+    """`hermes profile install` читает SOUL.md/config.yaml из корня — копии не должны разъезжаться с config/."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sync_distribution", ROOT / "scripts" / "sync_distribution.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    assert mod.drift() == [], "запустите: python3 scripts/sync_distribution.py"
+    import yaml
+    d = yaml.safe_load((ROOT / "distribution.yaml").read_text())
+    assert d["name"] == "jarvis" and "ERTGYKI" in d["author"]
+    for rel in d["distribution_owned"]:
+        assert (ROOT / rel).exists(), rel
+
+
+def test_dashboard_plugin_files():
+    """Вкладка панели Hermes: манифест по схеме docs/extending-the-dashboard, JS — валидный IIFE, тема — валидный YAML."""
+    import json
+    import yaml
+    dash = ROOT / "plugins" / "jarvis-brain" / "dashboard"
+    m = json.loads((dash / "manifest.json").read_text())
+    assert m["name"] == "jarvis-brain" and m["tab"]["path"].startswith("/") and (dash / m["entry"]).exists()
+    assert (dash / m["api"]).exists() and (dash / m["css"]).exists()
+    js = (dash / "dist" / "index.js").read_text()
+    assert "__HERMES_PLUGIN_SDK__" in js and '__HERMES_PLUGINS__.register("jarvis-brain"' in js and "ERTGYKI" in js
+    theme = yaml.safe_load((ROOT / "dashboard-themes" / "jarvis.yaml").read_text())
+    assert theme["name"] == "jarvis" and theme["palette"]["background"].startswith("#")

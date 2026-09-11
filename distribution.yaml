@@ -1,0 +1,44 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  J.A.R.V.I.S. как «дистрибутив профиля» Hermes (официальный механизм Hermes):
+#      hermes profile install github.com/debug999-cyber/jarvis-hermes --alias
+#      hermes profile update jarvis
+#  Hermes сам клонирует репозиторий, кладёт SOUL.md / config.yaml / skills / plugins в отдельный профиль
+#  «jarvis» и при обновлении заменяет только файлы дистрибутива — память, сессии, ключи остаются вашими.
+#
+#  Это второй, «чистый» способ установки для тех, у кого Hermes уже стоит. Полная установка на Mac
+#  (brew-инструменты, launchd-агенты, HUD, приложение строки меню, права macOS) — по-прежнему install.sh / get.sh.
+#  Справка: https://hermes-agent.nousresearch.com/docs/user-guide/profile-distributions
+# ═══════════════════════════════════════════════════════════════════════════
+name: jarvis
+version: 1.10.0
+description: "J.A.R.V.I.S. — персональный ассистент для Mac на Hermes Agent: голос, HUD, календарь/напоминания/окна, база знаний, хранилище файлов"
+hermes_requires: ">=0.12.0"
+author: "ERTGYKI (github.com/debug999-cyber)"
+license: "MIT"
+
+env_requires:
+  - name: OPENROUTER_API_KEY
+    description: "Ключ модели (OpenRouter) — или любой другой провайдер, настроенный через `hermes setup`"
+    required: false
+    default: ""
+  - name: GROQ_API_KEY
+    description: "Быстрое облачное распознавание речи (whisper-large-v3-turbo); без него — локальный whisper"
+    required: false
+    default: ""
+  - name: ELEVENLABS_API_KEY
+    description: "Премиум-голос; без него — edge-tts (бесплатно)"
+    required: false
+    default: ""
+
+# Что принадлежит дистрибутиву (заменяется при `hermes profile update`). Всё остальное — ваше.
+distribution_owned:
+  - SOUL.md
+  - config.yaml
+  - skills
+  - plugins/jarvis-core
+  - plugins/jarvis-macos
+  - plugins/jarvis-brain
+  - hooks/jarvis-boot
+  - skill-bundles
+  - dashboard-themes/jarvis.yaml
+  - distribution.yaml

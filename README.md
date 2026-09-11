@@ -102,6 +102,8 @@ jarvis-hermes/
 │   │   └── skills/{morning-briefing,mac-control}/SKILL.md
 │   ├── jarvis-brain/          ← база знаний: SQLite+FTS5, brain_* инструменты, ночная ревизия
 │   │   ├── plugin.yaml  __init__.py  schemas.py  db.py
+│   │   ├── facts.py           ← мост к памяти Hermes (holographic): заметки ↔ fact_store
+│   │   ├── dashboard/         ← вкладка «База знаний» в панели Hermes (manifest + JS + FastAPI)
 │   │   └── skills/{brain-usage,brain-nightly-review}/SKILL.md
 │   └── jarvis-macos/          ← 29 инструментов управления macOS
 │       ├── plugin.yaml  __init__.py  schemas.py  tools.py  mac.py
@@ -113,7 +115,9 @@ jarvis-hermes/
 │   ├── config.jarvis.yaml     ← фрагмент конфига (голос, wake word, плагины, toolsets)
 │   ├── BOOT.md                ← стартовый чек-лист gateway
 │   └── launchd/*.plist        ← автозапуск HUD и gateway
-├── skills/                    ← навыки: briefing, voice-etiquette, research-brief, home-automation
+├── skills/                    ← навыки: briefing, weather, voice-etiquette, research-brief, home-automation
+├── dashboard-themes/jarvis.yaml ← тема JARVIS для web-панели Hermes
+├── distribution.yaml  SOUL.md  config.yaml ← «дистрибутив профиля» Hermes: hermes profile install github.com/debug999-cyber/jarvis-hermes
 ├── hooks/jarvis-boot/         ← gateway-хук: BOOT.md + зеркалирование активности на HUD
 ├── scripts/                   ← merge_config.py, setup_cron.sh, selftest.py, doctor.py, update.py, make_shortcuts.py
 ├── get.sh                     ← установка одной командой (curl | bash)
@@ -163,7 +167,7 @@ jarvis-hermes/
 
 ## Статус
 
-**1.9.1 — стабильный релиз.** 120 автотестов + e2e HUD в браузере (Linux + macOS, Python 3.11/3.12), линтеры `ruff`/`shellcheck`
+**1.10.0 — стабильный релиз.** 125 автотестов + e2e HUD в браузере (Linux + macOS, Python 3.11/3.12), линтеры `ruff`/`shellcheck`
 и сборка JARVIS.app в CI на каждый коммит; в каждом релизе — готовое приложение; каждый релиз проходит smoke-тест updater'а с автоматическим откатом. Проверено на реальном Mac (macOS 26, M-серия):
 после `jarvis selftest` и выдачи прав работают все интеграции. Issue и PR приветствуются.
 

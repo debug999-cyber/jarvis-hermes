@@ -1,0 +1,11 @@
+{
+  "name": "jarvis-brain",
+  "label": "База знаний",
+  "description": "JARVIS: заметки, карточки, дневник, хранилище файлов и факты памяти Hermes — в одной вкладке web-панели.",
+  "icon": "Database",
+  "version": "1.0.0",
+  "tab": { "path": "/jarvis-brain", "position": "after:skills" },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}

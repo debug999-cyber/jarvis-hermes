@@ -1,0 +1,47 @@
+# Тема JARVIS для web-панели Hermes (hermes dashboard → иконка палитры → «JARVIS»).
+# install.sh кладёт файл в $HERMES_HOME/dashboard-themes/. Палитра совпадает с HUD (hud/static/index.html).
+name: jarvis
+label: JARVIS
+description: Голографический HUD — глубокий тёмно-синий фон, циановые акценты, моноширинные цифры
+
+palette:
+  background: "#050b14"
+  midground: "#7fe6ff"
+  foreground: "#e8f7ff"
+  warmGlow: "rgba(64, 200, 255, 0.28)"
+  noiseOpacity: 0.35
+
+typography:
+  fontSans: "Inter, -apple-system, system-ui, sans-serif"
+  fontMono: "JetBrains Mono, SF Mono, ui-monospace, monospace"
+  fontUrl: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+  baseSize: "14px"
+  lineHeight: "1.55"
+
+layout:
+  radius: "0.6rem"
+  density: comfortable
+
+layoutVariant: standard
+
+colorOverrides:
+  primary: "#7fe6ff"
+  primaryForeground: "#03111c"
+  accent: "#3fd3ff"
+  ring: "#3fd3ff"
+  success: "#5ef2b7"
+  warning: "#ffcf5a"
+  destructive: "#ff5c7a"
+  border: "rgba(127, 230, 255, 0.22)"
+
+componentStyles:
+  card:
+    boxShadow: "inset 0 0 0 1px rgba(127, 230, 255, 0.14), 0 0 24px rgba(63, 211, 255, 0.06)"
+  header:
+    background: "linear-gradient(180deg, rgba(5, 11, 20, 0.96), rgba(5, 11, 20, 0.82))"
+
+customCSS: |
+  /* тонкие сканлайны HUD — как в hud/static/index.html */
+  body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 90;
+    background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(127, 230, 255, 0.025) 3px 4px); }
+  /* ERTGYKI */

@@ -308,6 +308,40 @@ def check_native_cli(fix: bool) -> Check:
     return c.ok("ical, remindctl, peekaboo установлены")
 
 
+def check_memory(fix: bool) -> Check:
+    """memory.provider: holographic в config.yaml + memory_store.db с фактами (см. docs/BRAIN.md)."""
+    c = Check("Память Hermes (holographic)")
+    cfg_path = HERMES_HOME / "config.yaml"
+    provider = ""
+    try:
+        for line in cfg_path.read_text().splitlines():
+            if line.strip().startswith("provider:") and "holographic" in line:
+                provider = "holographic"
+    except OSError:
+        return c.warn("config.yaml не найден", "bash install.sh")
+    if provider != "holographic":
+        if fix:
+            code, _ = sh(["hermes", "config", "set", "memory.provider", "holographic"], timeout=30)
+            if code == 0:
+                c.fixed = True
+                return c.ok("memory.provider=holographic (исправлено) — перезапустите: jarvis gateway restart")
+        return c.warn("memory.provider не holographic — факты не зеркалятся в память Hermes", "hermes config set memory.provider holographic")
+    db = HERMES_HOME / "memory_store.db"
+    brain_db = HERMES_HOME / "plugin-data" / "jarvis-brain" / "brain.db"
+    if not db.exists():
+        if brain_db.exists() and fix:
+            sh([sys.executable, str(HERMES_HOME / "jarvis" / "migrate_brain.py")], timeout=120)
+            c.fixed = True
+        return c.ok("включён; memory_store.db появится после первого факта" + (" (перенос выполнен)" if c.fixed else "")) if not brain_db.exists() or c.fixed \
+            else c.warn("включён, но старые заметки ещё не перенесены", "jarvis brain migrate")
+    try:
+        import sqlite3
+        n = sqlite3.connect(f"file:{db}?mode=ro", uri=True).execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+    except Exception:
+        n = "?"
+    return c.ok(f"включён, фактов: {n}")
+
+
 def check_vault(fix: bool) -> Check:
     c = Check("Хранилище ~/JARVIS")
     vault_py = HERMES_HOME / "plugins" / "jarvis-brain" / "vault.py"
@@ -367,6 +401,7 @@ def run(fix: bool, ping_model: bool, quick: bool) -> list[Check]:
     if not quick:
         checks.append(check_permissions(fix))
     checks.append(check_native_cli(fix))
+    checks.append(check_memory(fix))
     checks.append(check_vault(fix))
     checks.append(check_version(fix))
     return checks

@@ -45,3 +45,18 @@ def test_version_check_reads_update_json(monkeypatch, tmp_path):
     (tmp_path / "jarvis" / "update.json").write_text(json.dumps({"available": True, "latest": "1.9.0"}))
     c = d.check_version(False)
     assert c.status == "warn" and "1.9.0" in c.note and c.fix_hint == "jarvis update"
+
+
+def test_memory_check_states(monkeypatch, tmp_path):
+    d = load(monkeypatch, tmp_path)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("memory:\n  enabled: true\n")
+    c = d.check_memory(False)
+    assert c.status == "warn" and "holographic" in c.fix_hint
+    cfg.write_text("memory:\n  provider: holographic\n")
+    assert d.check_memory(False).status == "ok"
+    import sqlite3
+    con = sqlite3.connect(tmp_path / "memory_store.db")
+    con.execute("CREATE TABLE facts(fact_id INTEGER PRIMARY KEY, content TEXT)"); con.execute("INSERT INTO facts(content) VALUES ('x')"); con.commit(); con.close()
+    c = d.check_memory(False)
+    assert c.status == "ok" and "фактов: 1" in c.note

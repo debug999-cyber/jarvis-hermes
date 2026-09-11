@@ -62,6 +62,17 @@ cd jarvis-hermes
 
 Если Hermes у вас живёт не в `~/.hermes` (например, `~/Documents/hermes/.hermes`) — передайте `--hermes-home=…` или задайте `HERMES_HOME`: установщик запишет путь в `~/.jarvis-home`, и команда `jarvis`, HUD, updater и JARVIS.app будут использовать его автоматически.
 
+### Альтернатива: у вас уже есть Hermes — установить JARVIS как профиль
+
+```bash
+hermes profile install github.com/debug999-cyber/jarvis-hermes --alias
+jarvis chat            # тот же агент, но в отдельном профиле «jarvis»: SOUL, конфиг, навыки, плагины
+hermes profile update jarvis   # обновление; память, сессии и ключи не трогаются
+```
+
+Это официальный механизм Hermes (`distribution.yaml` в корне репозитория). Он **не** ставит brew-инструменты (`ical`, `remindctl`,
+`peekaboo`), launchd-агенты, HUD и приложение строки меню — для полного «Mac-комплекта» запустите `install.sh` из шага 2.
+
 ## 3. Разрешения macOS (обязательно)
 
 ```bash

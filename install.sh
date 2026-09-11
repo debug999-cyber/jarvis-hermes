@@ -174,6 +174,8 @@ mkdir -p "$HERMES_HOME/hooks"
 rm -rf "$HERMES_HOME/hooks/jarvis-boot"; cp -R "$JARVIS_SRC/hooks/jarvis-boot" "$HERMES_HOME/hooks/"; ok "hooks/jarvis-boot"
 [[ -f "$HERMES_HOME/BOOT.md" ]] || cp "$JARVIS_SRC/config/BOOT.md" "$HERMES_HOME/BOOT.md"
 
+mkdir -p "$HERMES_HOME/dashboard-themes"
+cp "$JARVIS_SRC/dashboard-themes/jarvis.yaml" "$HERMES_HOME/dashboard-themes/jarvis.yaml"; ok "dashboard-themes/jarvis.yaml  (тема панели Hermes)"
 mkdir -p "$HERMES_HOME/skill-bundles"
 cp "$JARVIS_SRC/skill-bundles/jarvis.yaml" "$HERMES_HOME/skill-bundles/jarvis.yaml"; ok "skill-bundles/jarvis.yaml  (/jarvis в чате)"
 # (.env.example НЕ копируем как .env — пустые KEY= ломали бы детекцию ниже; он лежит рядом для справки)
@@ -188,6 +190,7 @@ cp "$JARVIS_SRC/scripts/selftest.py" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/update.py" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/doctor.py" "$JARVIS_HOME/"
 cp "$JARVIS_SRC/scripts/make_shortcuts.py" "$JARVIS_HOME/"
+cp "$JARVIS_SRC/scripts/migrate_brain.py" "$JARVIS_HOME/"
 cp -R "$JARVIS_SRC/app" "$JARVIS_HOME/app.src"   # исходник приложения строки меню (пересобирается при обновлении)
 cp "$JARVIS_SRC/VERSION" "$JARVIS_HOME/VERSION"
 [[ "$HERMES_HOME" == "$HOME/.hermes" ]] && rm -f "$HOME/.jarvis-home" || echo "$HERMES_HOME" > "$HOME/.jarvis-home"
@@ -201,6 +204,10 @@ step "Конфигурация $HERMES_HOME/config.yaml"
 cp "$HERMES_HOME/config.yaml" "$HERMES_HOME/config.yaml.bak.jarvis"
 "$VENV_PY" "$JARVIS_SRC/scripts/merge_config.py" "$JARVIS_SRC/config/config.jarvis.yaml" "$HERMES_HOME/config.yaml" \
   && ok "ключи JARVIS добавлены (бэкап: config.yaml.bak.jarvis)" || warn "merge не удался — примените config/config.jarvis.yaml вручную"
+# память: заметки прежних версий JARVIS → факты провайдера Hermes (holographic). Идемпотентно, brain.db не трогает.
+if [[ -f "$HERMES_HOME/plugin-data/jarvis-brain/brain.db" ]]; then
+  HERMES_HOME="$HERMES_HOME" "$VENV_PY" "$JARVIS_SRC/scripts/migrate_brain.py" 2>/dev/null | sed 's/^/  /' || warn "перенос заметок не удался — позже: jarvis brain migrate"
+fi
 
 # ─── 7. API-сервер для HUD ────────────────────────────────────────────────
 step "OpenAI-совместимый API Hermes (для HUD)"

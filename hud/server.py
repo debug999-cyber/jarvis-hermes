@@ -24,7 +24,6 @@ import json
 import mimetypes
 import os
 import queue
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -49,6 +48,7 @@ CONFIG = {
     "hermes_key": os.environ.get("API_SERVER_KEY", ""),
     "model": os.environ.get("JARVIS_MODEL", "hermes-agent"),
     "brain_db": os.environ.get("JARVIS_BRAIN_DB", str(HERMES_HOME / "plugin-data" / "jarvis-brain" / "brain.db")),
+    "facts_db": os.environ.get("JARVIS_FACTS_DB", str(HERMES_HOME / "memory_store.db")),  # память Hermes (memory.provider: holographic)
     "allowed_file_roots": [  # /file?path= отдаёт файлы только отсюда (скриншоты, снимки камеры, пользовательские папки)
         str(HERMES_HOME / "cache"),
         os.path.expanduser("~/Pictures"),
@@ -94,59 +94,28 @@ def _explain_http_error(code: int, body: str) -> str:
 
 # ═════════════════════════════ база знаний (read-only) ════════════════════
 
+def _overview_module():
+    """plugins/jarvis-brain/overview.py — общий read-only код для HUD и панели Hermes (в репозитории или установленный)."""
+    import importlib.util
+
+    for cand in (HERE.parent / "plugins" / "jarvis-brain" / "overview.py", HERMES_HOME / "plugins" / "jarvis-brain" / "overview.py"):
+        if cand.exists():
+            spec = importlib.util.spec_from_file_location("jarvis_brain_overview", cand)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            return mod
+    return None
+
+
 def brain_overview(query: str = "", limit: int = 12) -> dict:
-    """Снимок базы знаний для панели HUD. Только чтение; при отсутствии файла — пустой ответ."""
-    path = CONFIG["brain_db"]
-    if not os.path.exists(path):
-        return {"ok": False, "reason": "no database yet"}
-    try:
-        c = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1)
-        c.row_factory = sqlite3.Row
-        one = lambda sql: c.execute(sql).fetchone()[0]
-        out = {
-            "ok": True,
-            "notes": one("SELECT COUNT(*) FROM notes WHERE status='active'"),
-            "entities": one("SELECT COUNT(*) FROM entities WHERE status='active'"),
-            "episodes": one("SELECT COUNT(*) FROM episodes"),
-            "pending_turns": one("SELECT COUNT(*) FROM turns WHERE digested=0"),
-            "last_review": c.execute("SELECT finished_at, report FROM reviews ORDER BY id DESC LIMIT 1").fetchone(),
-            "kinds": [dict(r) for r in c.execute(
-                "SELECT kind, COUNT(*) AS n FROM notes WHERE status='active' GROUP BY kind ORDER BY n DESC")],
-            "top_entities": [dict(r) for r in c.execute(
-                """SELECT e.name, e.kind, COUNT(n.id) AS notes FROM entities e LEFT JOIN notes n ON n.entity_id=e.id AND n.status='active'
-                   WHERE e.status='active' GROUP BY e.id ORDER BY notes DESC, e.updated_at DESC LIMIT ?""", (limit,))],
-            "recent": [dict(r) for r in c.execute(
-                """SELECT n.id, n.kind, n.content, n.importance, e.name AS entity FROM notes n LEFT JOIN entities e ON e.id=n.entity_id
-                   WHERE n.status='active' ORDER BY n.updated_at DESC LIMIT ?""", (limit,))],
-            "diary": [dict(r) for r in c.execute("SELECT day, summary FROM episodes ORDER BY day DESC LIMIT 5")],
-        }
-        # схема v2 (журнал сбоев, история фактов) — опционально, старые базы без этих колонок тоже работают
-        try:
-            out["failures"] = [dict(r) for r in c.execute(
-                "SELECT tool, count, message FROM failures WHERE resolved=0 ORDER BY count DESC, last_seen DESC LIMIT 5")]
-            out["history"] = [dict(r) for r in c.execute(
-                """SELECT n.content, substr(n.valid_from,1,10) AS valid_from, substr(n.valid_until,1,10) AS valid_until FROM notes n
-                   WHERE n.status='superseded' ORDER BY n.valid_until DESC LIMIT 5""")]
-        except sqlite3.Error:
-            out["failures"], out["history"] = [], []
-        try:  # хранилище файлов
-            out["vault"] = {"files": one("SELECT COUNT(*) FROM files WHERE status='ok'"),
-                            "sources": [dict(r) for r in c.execute("SELECT name, path FROM vault_sources ORDER BY name")],
-                            "recent": [dict(r) for r in c.execute("SELECT rel, indexed_at FROM files WHERE status='ok' ORDER BY mtime DESC LIMIT 5")]}
-        except sqlite3.Error:
-            out["vault"] = None
-        if out["last_review"]:
-            out["last_review"] = dict(out["last_review"])
-        if query.strip():
-            like = f"%{query.strip()}%"
-            out["search"] = [dict(r) for r in c.execute(
-                """SELECT n.id, n.kind, n.content, e.name AS entity FROM notes n LEFT JOIN entities e ON e.id=n.entity_id
-                   WHERE n.status='active' AND (n.content LIKE ? OR n.tags LIKE ?) ORDER BY n.importance DESC LIMIT ?""",
-                (like, like, limit))]
-        c.close()
-        return out
-    except sqlite3.Error as e:
-        return {"ok": False, "reason": str(e)[:120]}
+    """Снимок базы знаний для панели HUD (делегирует плагину jarvis-brain; только чтение)."""
+    mod = _overview_module()
+    if mod is None:
+        return {"ok": False, "reason": "plugin jarvis-brain not installed"}
+    out = mod.brain_overview(CONFIG["brain_db"], query, limit)
+    if out.get("ok"):
+        out["hermes_facts"] = mod.facts_overview(CONFIG["facts_db"], query, 5)
+    return out
 
 
 # ═════════════════════════════ шина событий ═══════════════════════════════

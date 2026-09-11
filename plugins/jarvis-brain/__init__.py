@@ -13,7 +13,8 @@ jarvis-brain — «живая» база знаний JARVIS.
                       brain_review: авто-уборка → план кандидатов → модель принимает решения →
                       apply → дневник дня из журнала ходов → отчёт. Всё через changelog, с бэкапом.
 
-Файлы: db.py (хранилище), schemas.py (схемы инструментов), skills/brain-nightly-review/SKILL.md (процедура ревизии).
+Файлы: db.py (хранилище), facts.py (мост к памяти Hermes Holographic — факты зеркалятся туда и ищутся оттуда),
+schemas.py (схемы инструментов), skills/brain-nightly-review/SKILL.md (процедура ревизии).
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 from . import schemas
+from . import facts
 from .db import Brain, BrainError
 from .vault import Vault, VaultWatcher
 
@@ -50,6 +52,7 @@ _cfg = {
     "vault_dir": "",                # хранилище файлов/проектов (пусто → ~/JARVIS)
     "vault_context": True,          # фрагменты файлов из хранилища в контекст хода
     "vault_scan_minutes": 10,       # фоновая переиндексация; 0 — выкл
+    "mirror_facts": True,           # зеркалить заметки в память Hermes (memory.provider: holographic, fact_store)
 }
 _VOICE_PLATFORMS = {"voice", "voice_mode", "cli_voice", "discord_voice", "phone"}
 
@@ -153,6 +156,8 @@ def build_memory_context(user_message: str, is_first_turn: bool = False, session
                 parts.append(f"Вчера/последний день ({eps[0]['day']}): {eps[0]['summary'][:300]}")
         hits = b.recall(user_message, limit=_cfg["context_limit"], touch=True) if (user_message or "").strip() else []
         hits = [h for h in hits if h["score"] >= _cfg["min_score"]]
+        if facts.active():  # факты уже подмешивает провайдер Hermes (Holographic prefetch) — оставляем только карточки/уникальное
+            hits = [h for h in hits if h.get("entity")][: max(2, _cfg["context_limit"] // 2)]
         if session_id:
             _last_injected[session_id] = [h["id"] for h in hits]
             if len(_last_injected) > 200:
@@ -290,6 +295,8 @@ def hook_post_llm_call(session_id: str = "", user_message: str = "", assistant_r
                 if 3 <= len(text) <= 500:
                     res = b.remember(text, kind="fact", source="auto-capture", confidence=0.7, importance=3, tags="auto")
                     _hud("brain.update", {"action": res["action"], "id": res["id"], "content": text[:120]})
+                    if _cfg.get("mirror_facts", True) and facts.active():
+                        facts.add(res["note"]["content"], kind="fact", tags="auto", confidence=0.7)
     except Exception as e:
         logger.debug("brain post_llm failed: %s", e)
     finally:
@@ -308,6 +315,11 @@ def tool_brain_remember(args: dict, **kwargs) -> str:
         _hud("brain.update", {"action": res["action"], "id": res["id"], "content": res["note"]["content"][:120]})
         msg = "Записано" if res["action"] == "created" else f"Обновлена похожая заметка (сходство {res['similarity']})"
         extra = {}
+        if _cfg.get("mirror_facts", True) and facts.active():
+            fid = facts.add(res["note"]["content"], kind=res["note"].get("kind") or "fact", entity=args.get("entity"),
+                            tags=args.get("tags", ""), confidence=res["note"].get("confidence"))
+            if fid is not None:
+                extra["fact_id"] = fid  # тот же факт виден через fact_store/fact_feedback Hermes
         if res.get("possible_conflicts"):
             extra["possible_conflicts"] = res["possible_conflicts"]
             extra["hint"] = "Есть похожие заметки — если новая их заменяет, вызови brain_forget для старых (id выше)."
@@ -330,7 +342,10 @@ def tool_brain_recall(args: dict, **kwargs) -> str:
             out["results"] = brain().recall(q, limit=limit, kinds=args.get("kinds"), entity=args.get("entity"))
         if scope in ("episodes", "all"):
             out["episodes"] = brain().search_episodes(q, limit=limit)
-        found = bool(out.get("results") or out.get("episodes"))
+        if scope in ("notes", "all") and facts.active() and q.strip():
+            known = {h["content"] for h in out.get("results", [])}
+            out["hermes_facts"] = [f for f in facts.search(q, limit=limit) if f["content"] not in known]
+        found = bool(out.get("results") or out.get("episodes") or out.get("hermes_facts"))
         return _ok(count=len(out.get("results", [])) + len(out.get("episodes", [])), **out,
                    hint="" if found else "Ничего не найдено — можно спросить пользователя и затем brain_remember")
     except BrainError as e:
@@ -385,7 +400,10 @@ def tool_brain_review(args: dict, **kwargs) -> str:
     a = args.get("action")
     try:
         if a == "stats":
-            return _ok(stats=b.stats())
+            st = b.stats()
+            st["hermes_memory"] = {"provider": "holographic" if facts.active() else "off", "facts": facts.count() if facts.active() else 0,
+                                   "db": str(facts.db_path()) if facts.active() else ""}
+            return _ok(stats=st)
         if a == "maintain":
             rep = b.auto_maintenance(mirror_dir=_cfg.get("backup_mirror") or None)
             _hud("brain.review", {"stage": "maintain", "report": rep})

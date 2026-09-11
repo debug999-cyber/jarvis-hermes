@@ -68,6 +68,7 @@ J.A.R.V.I.S. on Hermes Agent
   jarvis status          состояние компонентов
   jarvis brain [stats|review|export|diary|profile|log|backup|restore|sql]   база знаний
   jarvis brain import    первичный импорт: контакты, календарь, заметки → карточки в базе
+  jarvis brain migrate   перенести заметки в память Hermes (memory_store.db, fact_store) — идемпотентно
   jarvis shortcuts       быстрые команды Siri/Shortcuts: «Спросить JARVIS», «В хранилище JARVIS» (Finder), «Замолчать», брифинг
   jarvis vault [status|add <папка>|remove|search <слова>|list|tree|reindex|open]   хранилище файлов и проектов (~/JARVIS)
   jarvis brief           утренний брифинг прямо сейчас
@@ -158,8 +159,10 @@ case "$cmd" in
         read -r -p "Откатить базу из $src ? [y/N] " a; [[ "$a" == [yY] ]] || exit 0
         cp "$BRAIN_DB" "$BRAIN_DB.pre-restore-$(date +%Y%m%d-%H%M%S)"; cp "$src" "$BRAIN_DB"; rm -f "$BRAIN_DB-wal" "$BRAIN_DB-shm"; echo "ok" ;;
       import)  exec hermes chat -s jarvis/brain-import -q "Выполни первичный импорт знаний по навыку brain-import. Спрашивай подтверждение перед записью." ;;
+      migrate) exec "$PY" "$JARVIS_HOME/migrate_brain.py" "$@" ;;   # заметки brain.db → память Hermes (holographic), без потерь
       *)      [[ -f "$BRAIN_DB" ]] || { echo "База ещё не создана (появится после первого запуска jarvis)"; exit 0; }
               sqlite3 "$BRAIN_DB" "SELECT 'notes: '||COUNT(*) FROM notes WHERE status='active'; SELECT 'entities: '||COUNT(*) FROM entities WHERE status='active'; SELECT 'episodes: '||COUNT(*) FROM episodes; SELECT 'pending turns: '||COUNT(*) FROM turns WHERE digested=0; SELECT 'last review: '||COALESCE(MAX(finished_at),'—') FROM reviews;"
+              [[ -f "$HERMES_HOME/memory_store.db" ]] && sqlite3 "$HERMES_HOME/memory_store.db" "SELECT 'hermes facts: '||COUNT(*) FROM facts;" 2>/dev/null || true
               echo "file: $BRAIN_DB ($(du -k "$BRAIN_DB" | cut -f1) KB)  ·  markdown: $HERMES_HOME/jarvis/BRAIN.md" ;;
     esac ;;
   credits|--credits|author)
