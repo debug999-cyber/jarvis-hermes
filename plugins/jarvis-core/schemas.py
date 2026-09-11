@@ -75,11 +75,3 @@ JARVIS_UPDATE = {
     },
 }
 
-JARVIS_WEATHER = {
-    "name": "jarvis_weather",
-    "description": "Текущая погода и прогноз на сегодня для города (без API-ключа). «Какая погода?», «погода в Москве».",
-    "parameters": {
-        "type": "object",
-        "properties": {"city": {"type": "string", "description": "Город; по умолчанию — из настроек"}},
-    },
-}

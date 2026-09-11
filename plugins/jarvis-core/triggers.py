@@ -123,7 +123,7 @@ class Triggers:
             self.st["brief_day"] = today
             return [{"kind": "user.returned", "text": "С возвращением, сэр.", "llm": True, "urgent": False,
                      "prompt": ("Событие: пользователь вернулся к Mac, это его первое появление сегодня. Сделай короткий утренний "
-                                "брифинг (3–5 предложений, без markdown): погода (jarvis_weather), события календаря сегодня "
+                                "брифинг (3–5 предложений, без markdown): погода (навык weather / wttr.in), события календаря сегодня "
                                 "(mac_calendar today), просроченные напоминания, батарея. Заверши одной фразой: что важнее всего сегодня.")}]
         return [{"kind": "user.returned", "text": "", "llm": True, "urgent": False,
                  "prompt": ("Событие: пользователь вернулся к Mac после перерыва. Проверь HEARTBEAT.md по навыку heartbeat: "

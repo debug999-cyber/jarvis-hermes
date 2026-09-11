@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.1 — вторая волна замен: Computer Use, OCR, Hermes Desktop, навык погоды
+
+- **Computer Use Hermes вместо своего ввода**: toolset `computer_use` (cua-driver от trycua/cua) включён в конфиге, `install.sh`
+  ставит драйвер (`hermes computer-use install`). Клики и ввод в любое окно идут в фоне, без кражи курсора; `mac_type` остаётся для простых нажатий.
+- **Текст с экрана без vision-модели**: `mac_screenshot(ocr=true)` и автоматический «контекст экрана» («что за ошибка на экране?»)
+  отдают распознанный текст через `peekaboo see --ocr` (Apple Vision). Быстрее и дешевле; картинка по-прежнему доступна для `vision_analyze`.
+- **Свой инструмент `jarvis_weather` удалён** — вместо него навык `skills/weather` (приём из openclaw `weather`: wttr.in через `web_extract`/`curl`).
+- **Меню-бар**: пункты «Hermes Desktop (чат-приложение)» и «Панель Hermes (dashboard)» — официальные интерфейсы Hermes, тот же агент и память.
+- `docs/AUDIT.md` обновлён (статусы 1.9.1).
+
 ## 1.9.0 — принцип «сначала GitHub»: нативные CLI вместо AppleScript
 
 - **Новое правило разработки** (по требованию автора): перед любым своим кодом ищем готовое решение на GitHub и в Hermes;

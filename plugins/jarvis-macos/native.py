@@ -224,3 +224,33 @@ def screenshot(path: Path, mode: str = "screen") -> bool | None:
     pmode = "frontmost" if mode == "front_window" else "screen"
     code, _ = run([bin_, "see", "--no-elements", "--mode", pmode, "--path", str(path)], timeout=30)
     return code == 0 and path.exists()
+
+
+def screen_text(path: Path, mode: str = "screen", app: str | None = None, limit: int = 120) -> dict | None:
+    """Скриншот + распознанный текст экрана (Apple Vision через `peekaboo see --ocr`). None → нет peekaboo.
+
+    Возвращает {"path", "app", "window", "lines": [...], "elements": N}. Текст даёт модели прочитать ошибку/
+    документ без vision-модели (быстрее и дешевле), картинка остаётся для vision_analyze при необходимости.
+    """
+    bin_ = which("peekaboo")
+    if not bin_:
+        return None
+    cmd = [bin_, "see", "--ocr", "--json", "--path", str(path), "--mode", "frontmost" if mode == "front_window" else "screen"]
+    if app:
+        cmd += ["--app", app]
+    data = run_json(cmd, timeout=60)
+    if not isinstance(data, dict):
+        return None
+    payload = data.get("data") if isinstance(data.get("data"), dict) else data
+    lines, seen = [], set()
+    for el in payload.get("ui_elements") or []:
+        if not isinstance(el, dict):
+            continue
+        text = " ".join(str(el.get(k)) for k in ("title", "label", "value") if el.get(k)).strip()
+        if text and text not in seen:
+            seen.add(text)
+            lines.append(text)
+        if len(lines) >= limit:
+            break
+    return {"path": str(path), "app": payload.get("application_name"), "window": payload.get("window_title"),
+            "lines": lines, "elements": payload.get("element_count")}

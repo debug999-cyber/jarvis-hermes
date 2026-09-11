@@ -50,7 +50,7 @@ def test_all_schemas_well_formed():
     core = load_plugin("jarvis-core")
     for s in macos.schemas.ALL_SCHEMAS:
         _check_schema(s)
-    for s in (core.schemas.JARVIS_HUD, core.schemas.JARVIS_TIMER, core.schemas.JARVIS_MODE, core.schemas.JARVIS_WEATHER):
+    for s in (core.schemas.JARVIS_HUD, core.schemas.JARVIS_TIMER, core.schemas.JARVIS_MODE, core.schemas.JARVIS_UPDATE):
         _check_schema(s)
 
 
@@ -67,7 +67,7 @@ def test_macos_register(ctx):
 def test_core_register(ctx):
     core = load_plugin("jarvis-core")
     core.register(ctx)
-    assert {"jarvis_hud", "jarvis_timer", "jarvis_mode", "jarvis_weather", "jarvis_update"} == set(ctx.tools)
+    assert {"jarvis_hud", "jarvis_timer", "jarvis_mode", "jarvis_update"} == set(ctx.tools)
     for hook in ("pre_llm_call", "post_llm_call", "pre_tool_call", "post_tool_call", "on_session_start"):
         assert hook in ctx.hooks
     assert {"brief", "focus", "timer"} <= set(ctx.commands)
@@ -466,3 +466,20 @@ def test_native_available_and_hints():
     av = macos.native.available()
     assert set(av) == {"ical", "remindctl", "peekaboo"} == set(macos.native.INSTALL_HINTS)
     assert macos.native.run_json(["definitely-not-a-binary-xyz"]) is None
+
+
+def test_screenshot_ocr_via_peekaboo(monkeypatch, tmp_path):
+    """ocr=true → peekaboo see --ocr, текст из ui_elements без дублей; без peekaboo — обычный путь."""
+    macos = load_plugin("jarvis-macos")
+    monkeypatch.setattr(macos.tools.mac, "IS_MAC", True)
+    monkeypatch.setenv("JARVIS_CACHE_DIR", str(tmp_path))
+    see = {"success": True, "data": {"application_name": "Xcode", "window_title": "main.swift", "element_count": 3, "ui_elements": [
+        {"role": "staticText", "title": "error: cannot find 'foo'"}, {"role": "button", "label": "Build"}, {"role": "staticText", "value": "Build"}]}}
+    calls = _fake_cli(monkeypatch, macos.native, {"peekaboo": see})
+    out = json.loads(macos.tools.mac_screenshot({"mode": "front_window", "ocr": True}))
+    assert out["backend"] == "peekaboo" and out["app"] == "Xcode" and out["lines"] == ["error: cannot find 'foo'", "Build"]
+    assert "--ocr" in calls[-1] and "frontmost" in calls[-1]
+    # контекст экрана в jarvis-core тоже подхватывает OCR
+    core = load_plugin("jarvis-core")
+    monkeypatch.setattr(core.shutil, "which", lambda n: None)
+    assert core.screen_ocr("/tmp/x.png") == []

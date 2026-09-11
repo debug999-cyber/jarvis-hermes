@@ -7,7 +7,7 @@ jarvis-core — ядро J.A.R.V.I.S. поверх Hermes Agent.
   * pre/post_tool_call, on_stream_* → транслирует активность агента на HUD
                      (веб-интерфейс «арк-реактора») через HTTP-события;
   * инструменты    → jarvis_hud (панели на экране), jarvis_timer (таймеры/будильники),
-                     jarvis_mode (режимы: focus / night / normal), jarvis_weather;
+                     jarvis_mode (режимы: focus / night / normal), jarvis_update;
   * slash-команды  → /brief (утренний брифинг), /focus, /timer.
 
 Плагин не зависит от HUD: если сервер HUD не запущен, события просто отбрасываются.
@@ -20,11 +20,11 @@ import json
 import re
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
-import urllib.request
 from pathlib import Path
 
 from . import schemas, state
@@ -137,6 +137,29 @@ def capture_screen() -> str | None:
         return None
 
 
+def screen_ocr(path: str, limit: int = 60) -> list[str]:
+    """Текст с экрана через peekaboo (openclaw/Peekaboo, Apple Vision), если он установлен. Иначе []."""
+    bin_ = shutil.which("peekaboo") or next((p for p in ("/opt/homebrew/bin/peekaboo", "/usr/local/bin/peekaboo") if Path(p).exists()), None)
+    if not bin_:
+        return []
+    try:
+        proc = subprocess.run([bin_, "see", "--ocr", "--json", "--mode", "frontmost", "--path", path], timeout=45, capture_output=True, text=True)
+        out = proc.stdout
+        data = json.loads(out[out.index("{"):]) if "{" in out else {}
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return []
+    payload = data.get("data") if isinstance(data.get("data"), dict) else data
+    lines, seen = [], set()
+    for el in payload.get("ui_elements") or []:
+        text = " ".join(str(el.get(k)) for k in ("title", "label", "value") if isinstance(el, dict) and el.get(k)).strip()
+        if text and text not in seen:
+            seen.add(text)
+            lines.append(text)
+        if len(lines) >= limit:
+            break
+    return lines
+
+
 def screen_context(user_message: str) -> str:
     if not _cfg.get("screen_context", True) or not wants_screen(user_message):
         return ""
@@ -145,6 +168,12 @@ def screen_context(user_message: str) -> str:
         return ("[JARVIS screen] Пользователь говорит о своём экране, но снять скриншот не удалось (нет права «Запись экрана»). "
                 "Попроси выдать право: Системные настройки → Конфиденциальность → Запись экрана → терминал, или jarvis selftest --fix.")
     _hud.emit("panel.show", {"kind": "image", "title": "КОНТЕКСТ ЭКРАНА", "content": path, "position": "right", "ttl": 60})
+    lines = screen_ocr(path)
+    if lines:  # текст уже есть — vision-модель нужна только если важна сама картинка
+        text = "\n".join(lines)[:3000]
+        return (f"[JARVIS screen] Пользователь говорит о своём экране. Активное приложение: {_frontmost() or '—'}. "
+                f"Текст с экрана (OCR):\n{text}\nЕсли по тексту всё ясно — отвечай сразу; если важна картинка/расположение — "
+                f"vision_analyze({path}).")
     return (f"[JARVIS screen] Пользователь говорит о своём экране. Скриншот уже снят: {path} — сразу вызови vision_analyze "
             f"с этим путём (без вопроса «какой экран?») и отвечай по его содержимому. Активное приложение: {_frontmost() or '—'}.")
 
@@ -336,26 +365,6 @@ def tool_jarvis_update(args: dict, **kwargs) -> str:
     if action == "apply":
         _hud.emit("alert", {"kind": "update", "text": "JARVIS обновлён — сервисы перезапускаются"})
     return json.dumps({"success": True, "output": out[-1200:], **update_status()}, ensure_ascii=False)
-
-
-def tool_jarvis_weather(args: dict, **kwargs) -> str:
-    """Погода без API-ключа через wttr.in (JSON)."""
-    city = args.get("city") or _cfg["city"]
-    try:
-        url = f"https://wttr.in/{urllib.request.quote(city)}?format=j1&lang=ru"
-        with urllib.request.urlopen(url, timeout=8) as r:
-            data = json.loads(r.read().decode())
-        cur = data["current_condition"][0]
-        today = data["weather"][0]
-        desc = (cur.get("lang_ru") or cur.get("weatherDesc") or [{"value": ""}])[0]["value"]
-        return json.dumps({
-            "success": True, "city": city,
-            "temp_c": cur["temp_C"], "feels_like_c": cur["FeelsLikeC"], "description": desc,
-            "humidity": cur["humidity"], "wind_kmph": cur["windspeedKmph"],
-            "today_min_c": today["mintempC"], "today_max_c": today["maxtempC"],
-        }, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"success": False, "error": f"Не удалось получить погоду: {e}"}, ensure_ascii=False)
 
 
 # ══════════════════════════════ watchdog (без LLM) ═════════════════════════
@@ -550,7 +559,7 @@ def meeting_prep_from_brain(event: dict) -> str | None:
 
 BRIEF_PROMPT = (
     "Сделай утренний брифинг в стиле JARVIS, коротко и по делу: "
-    "1) поздоровайся по времени суток; 2) погода (jarvis_weather); 3) события календаря на сегодня (mac_calendar today); "
+    "1) поздоровайся по времени суток; 2) погода (навык weather: wttr.in через web_extract/terminal, город из контекста); 3) события календаря на сегодня (mac_calendar today); "
     "4) активные напоминания (mac_reminders list); 5) батарея и состояние системы (mac_battery); "
     "6) если есть непрочитанное в памяти/задачах — напомни. Заверши одной фразой-рекомендацией."
 )
@@ -586,7 +595,6 @@ def register(ctx) -> None:
     ctx.register_tool(name="jarvis_hud", toolset=TOOLSET, schema=schemas.JARVIS_HUD, handler=tool_jarvis_hud)
     ctx.register_tool(name="jarvis_timer", toolset=TOOLSET, schema=schemas.JARVIS_TIMER, handler=tool_jarvis_timer)
     ctx.register_tool(name="jarvis_mode", toolset=TOOLSET, schema=schemas.JARVIS_MODE, handler=tool_jarvis_mode)
-    ctx.register_tool(name="jarvis_weather", toolset=TOOLSET, schema=schemas.JARVIS_WEATHER, handler=tool_jarvis_weather)
     ctx.register_tool(name="jarvis_update", toolset=TOOLSET, schema=schemas.JARVIS_UPDATE, handler=tool_jarvis_update)
 
     # бандл-скиллы плагина (jarvis-core:morning-briefing и т.д.)

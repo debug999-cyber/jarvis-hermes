@@ -107,9 +107,14 @@ toolsets:
     - clarify
     - code_execution
     - delegation
+    - computer_use               # Hermes Computer Use (cua-driver): клики/ввод в фоне без кражи курсора — вместо нашего mac_type
     - jarvis_core
     - jarvis_macos
     - jarvis_brain
+
+# ── Computer Use: фоновое управление окнами (Hermes + cua-driver) ──────────
+computer_use:
+  permission_mode: standard      # standard — обычные подтверждения Hermes; bounded — манифест возможностей
 
 # ── Память и контекст ──────────────────────────────────────────────────────
 memory:

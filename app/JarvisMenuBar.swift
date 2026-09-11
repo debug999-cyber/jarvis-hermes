@@ -200,6 +200,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add("Голосовой чат в Terminal", #selector(openVoice), key: "j")
         add("Спросить…", #selector(ask), key: "a")
         add("База знаний (BRAIN)", #selector(openBrain), key: "k")
+        add("Hermes Desktop (чат-приложение)", #selector(openDesktop))
+        add("Панель Hermes (dashboard)", #selector(openDashboard))
         add("Замолчать", #selector(hush), key: ".")
         m.addItem(.separator())
         add(hudUp && apiUp ? "Остановить сервисы" : "Запустить сервисы", #selector(toggleServices))
@@ -224,6 +226,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openHUD() { NSWorkspace.shared.open(URL(string: hudURL)!); if !hudUp { run(jarvisBin, ["hud", "start"]) { _, _ in self.refresh() } } }
     @objc func openBrain() { NSWorkspace.shared.open(URL(string: hudURL + "/#brain")!) }
     @objc func openVoice() { openInTerminal("jarvis") }
+    /// Официальный десктоп-клиент Hermes (тот же агент, конфиг и память) — вместо собственного чат-окна.
+    @objc func openDesktop() { run(NSHomeDirectory() + "/.local/bin/hermes", ["desktop"]) }
+    /// Веб-панель Hermes: сессии, cron, навыки, MCP, память — http://127.0.0.1:9119
+    @objc func openDashboard() {
+        http("http://127.0.0.1:9119/") { up, _ in
+            if up { NSWorkspace.shared.open(URL(string: "http://127.0.0.1:9119")!) }
+            else { run(NSHomeDirectory() + "/.local/bin/hermes", ["dashboard"]) }  // сам откроет браузер
+        }
+    }
     @objc func brief() { openInTerminal("jarvis brief") }
     @objc func hush() { run(jarvisBin, ["hush"]) }
     @objc func selftest() { openInTerminal("jarvis selftest") }

@@ -433,6 +433,10 @@ def mac_screenshot(args: dict) -> str:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / mac.stamp("screen", "png")
     mode = args.get("mode") or "screen"
+    if args.get("ocr"):
+        ocr = native.screen_text(path, mode)
+        if ocr:
+            return json_ok(backend="peekaboo", text="\n".join(ocr["lines"]), **ocr)
     if native.screenshot(path, mode):  # peekaboo (если установлен): точный захват окна без AppleScript
         return json_ok(path=str(path), backend="peekaboo", hint="Передайте path в vision_analyze, чтобы описать содержимое экрана")
     cmd = ["screencapture", "-x"]  # -x: без звука затвора

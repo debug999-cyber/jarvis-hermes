@@ -234,8 +234,8 @@ MAC_NOTIFY = {
 MAC_SCREENSHOT = {
     "name": "mac_screenshot",
     "description": (
-        "Сделать скриншот экрана (весь экран или конкретное окно) и вернуть путь к PNG. "
-        "После этого можно вызвать vision_analyze с этим путём, чтобы «посмотреть» на экран. "
+        "Сделать скриншот экрана (весь экран или активное окно) и вернуть путь к PNG; с ocr=true — ещё и текст с экрана "
+        "(если установлен peekaboo). Дальше vision_analyze с путём, если нужно понять картинку, а не текст. "
         "Примеры: «что у меня на экране?», «сделай скриншот»."
     ),
     "parameters": {
@@ -243,6 +243,8 @@ MAC_SCREENSHOT = {
         "properties": {
             "mode": {"type": "string", "enum": ["screen", "front_window"], "default": "screen"},
             "display": {"type": "integer", "description": "Номер дисплея (1 — основной)", "default": 1},
+            "ocr": {"type": "boolean", "default": False,
+                    "description": "Вернуть и распознанный текст экрана (Apple Vision через peekaboo) — для «прочитай ошибку/текст» без vision-модели"},
         },
     },
 }

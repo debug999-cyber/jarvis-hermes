@@ -117,13 +117,17 @@ if command -v hermes >/dev/null 2>&1 || [[ -x "$BIN_DIR/hermes" ]]; then
   ok "уже установлен: $(command -v hermes || echo "$BIN_DIR/hermes")"
 else
   echo "  Устанавливаю Hermes Agent официальным скриптом (uv + Python 3.11 + репозиторий)…"
-  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-computer-use || \
   curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 fi
 export PATH="$BIN_DIR:$PATH"
 command -v hermes >/dev/null 2>&1 || die "Команда hermes недоступна. Откройте новый терминал и запустите install.sh снова."
 [[ -d "$HERMES_REPO" ]] || die "Не найден репозиторий Hermes в $HERMES_REPO"
 ok "hermes $(hermes --version 2>/dev/null | head -1 || echo '')"
+# Computer Use (cua-driver, trycua/cua) — готовое фоновое управление окнами вместо нашего AppleScript-ввода
+if hermes computer-use status >/dev/null 2>&1; then ok "computer-use driver"; else
+  printf "  ${CD}… устанавливаю cua-driver (hermes computer-use install)${C0}\n"
+  hermes computer-use install >/dev/null 2>&1 && ok "computer-use driver" || warn "cua-driver не поставился (не критично; повторите: hermes computer-use install)"
+fi
 
 # venv Hermes (нужен для pip-extras)
 VENV_PY="$HERMES_REPO/venv/bin/python"
