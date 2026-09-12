@@ -51,11 +51,7 @@ def test_check_uses_release_then_falls_back_to_main(tmp_path, monkeypatch):
         return None
     monkeypatch.setattr(u, "http_json", fake_http)
 
-    class R:  # raw VERSION
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-        def read(self): return b"1.4.0\n"
-    monkeypatch.setattr(u.urllib.request, "urlopen", lambda req, timeout=10: R())
+    monkeypatch.setattr(u, "fetch_bytes", lambda url, timeout=10: b"1.4.0\n")  # raw VERSION
     r = u.check()
     assert r["available"] and r["latest"] == "1.4.0" and r["channel"] == "main" and not r["error"]
     assert json.loads((tmp_path / "jarvis" / "update.json").read_text())["available"]
@@ -164,3 +160,51 @@ def test_jarvis_update_tool(tmp_path, monkeypatch):
     assert "Доступно обновление JARVIS 1.4.0" in core.build_context()
     r = json.loads(core.tool_jarvis_update({"action": "set_auto", "value": "auto"}))
     assert r["success"] and r["auto_update"] == "auto"
+
+
+def test_fetch_bytes_falls_back_to_curl_when_urllib_cannot_resolve(tmp_path, monkeypatch):
+    """Кейс из жизни: urllib на macOS берёт прокси из системы и падает с [Errno 8] nodename nor servname — curl работает."""
+    import socket
+    import urllib.error
+    u = load(tmp_path, monkeypatch)
+
+    class BadOpener:
+        def open(self, req, timeout=0):
+            raise urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided, or not known"))
+    monkeypatch.setattr(u.urllib.request, "build_opener", lambda *h: BadOpener())
+    calls = []
+
+    class P:
+        returncode, stdout, stderr = 0, b'{"tag_name": "v9.9.9"}', b""
+    monkeypatch.setattr(u.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or P())
+    assert u.http_json("https://api.github.com/repos/x/y/releases/latest") == {"tag_name": "v9.9.9"}
+    assert calls and calls[0][0].endswith("curl") and "-fsSL" in calls[0]
+    # curl тоже не смог → понятная подсказка про прокси/VPN и --from
+    monkeypatch.setattr(u.shutil, "which", lambda n: None)
+    with pytest.raises(RuntimeError, match="Прокси|прокси") as ei:
+        u.fetch_bytes("https://api.github.com/x")
+    assert "--from" in str(ei.value)
+
+
+def test_apply_from_local_folder_and_zip(tmp_path, monkeypatch):
+    """jarvis update --from <папка|zip>: обновление без GitHub API (нет сети / прокси мешает)."""
+    import zipfile
+    u = load(tmp_path, monkeypatch)
+    fake_install(tmp_path, "1.9.0")
+    src = tmp_path / "proj"; src.mkdir()
+    (src / "VERSION").write_text("1.10.1\n")
+    (src / "install.sh").write_text('#!/bin/bash\npython3 -c "import json;p=\'$HERMES_HOME/jarvis/install.json\';d=json.load(open(p));d[\'version\']=\'1.10.1\';json.dump(d,open(p,\'w\'))"\n')
+    r = u.apply(tarball=str(src))
+    assert r["updated"] and r["to"] == "1.10.1" and "1.10.1" in r["log"][0]
+    # zip (как «Download ZIP» на GitHub — с корневой папкой)
+    fake_install(tmp_path, "1.9.0")
+    z = tmp_path / "jarvis-hermes-main.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in ("VERSION", "install.sh"):
+            zf.write(src / f, f"jarvis-hermes-main/{f}")
+    assert u.apply(tarball=str(z))["to"] == "1.10.1"
+    with pytest.raises(RuntimeError, match="подозрительный"):
+        zz = tmp_path / "evil.zip"
+        with zipfile.ZipFile(zz, "w") as zf:
+            zf.writestr("../evil.sh", "x")
+        u.download_and_extract(str(zz), tmp_path / "w")

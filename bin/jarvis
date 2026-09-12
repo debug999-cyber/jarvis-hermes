@@ -77,6 +77,7 @@ J.A.R.V.I.S. on Hermes Agent
   jarvis doctor [--fix]  самодиагностика: модель, плагины, API, HUD, launchd, права, хранилище (--fix чинит; --hermes = hermes doctor)
   jarvis update          обновить JARVIS с GitHub (бэкап → установка → перезапуск; откат: --rollback)
   jarvis update --check  только проверить;  --status · --channel stable|main · --auto off|check|auto · --hermes
+  jarvis update --from X обновить из папки/zip/URL (когда GitHub недоступен из Python: VPN, прокси)
   jarvis app [build|quit|status|debug]  приложение строки меню JARVIS.app
   jarvis version         версии JARVIS и Hermes
   jarvis perms           открыть нужные панели разрешений macOS
@@ -191,7 +192,8 @@ case "$cmd" in
       --hermes)          exec hermes update ;;
       --yes|-y|"")       exec "$PY" "$JARVIS_HOME/update.py" apply ;;
       --force)           exec "$PY" "$JARVIS_HOME/update.py" apply --force ;;
-      *) echo "jarvis update [--check|--rollback|--status|--force|--channel stable|main|--auto off|check|auto|--hermes]"; exit 2 ;;
+      --from)            exec "$PY" "$JARVIS_HOME/update.py" apply --from "${2:?папка, zip или URL}" ;;
+      *) echo "jarvis update [--check|--rollback|--status|--force|--from PATH|--channel stable|main|--auto off|check|auto|--hermes]"; exit 2 ;;
     esac ;;
   version|--version|-v)
     printf "JARVIS %s · Hermes %s\n" "$(cat "$JARVIS_HOME/VERSION" 2>/dev/null || echo '?')" "$(hermes --version 2>/dev/null | head -1 || echo '?')" ;;

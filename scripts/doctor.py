@@ -367,6 +367,28 @@ def check_vault(fix: bool) -> Check:
     return c.ok(note + (" · " + "; ".join(extras) if extras else ""))
 
 
+def check_network(fix: bool) -> Check:
+    """Доступен ли GitHub из Python (urllib с системным прокси) и из curl. Расхождение = прокси/PAC от VPN."""
+    import urllib.error
+    import urllib.request
+    c = Check("Сеть → GitHub")
+    url = "https://api.github.com/"
+    py_err = ""
+    try:
+        urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "jarvis-doctor"}), timeout=8).read(1)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        py_err = str(getattr(e, "reason", e))[:80]
+    code, _ = sh(["curl", "-fsS", "-o", "/dev/null", "--max-time", "8", url], timeout=15)
+    if not py_err:
+        return c.ok("api.github.com доступен")
+    proxies = urllib.request.getproxies()
+    if code == 0:
+        return c.warn(f"Python не достучался до GitHub ({py_err}), а curl — да" + (f"; прокси из системы: {proxies}" if proxies else ""),
+                      "Системные настройки → Сеть → ваше подключение → Подробнее → Прокси: снимите галочки (часто остаётся от VPN). "
+                      "Обновление всё равно работает: обновлялка сама переключится на curl (jarvis update), или jarvis update --from ~/Downloads/jarvis-hermes")
+    return c.fail(f"GitHub недоступен ни из Python, ни из curl ({py_err})", "проверьте интернет/VPN; без сети — jarvis update --from <папка проекта>")
+
+
 def check_version(fix: bool) -> Check:
     c = Check("Версия JARVIS")
     inst, upd = {}, {}
@@ -403,6 +425,8 @@ def run(fix: bool, ping_model: bool, quick: bool) -> list[Check]:
     checks.append(check_native_cli(fix))
     checks.append(check_memory(fix))
     checks.append(check_vault(fix))
+    if not quick:
+        checks.append(check_network(fix))
     checks.append(check_version(fix))
     return checks
 

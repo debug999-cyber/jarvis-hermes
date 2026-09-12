@@ -10,7 +10,7 @@
 #  Справка: https://hermes-agent.nousresearch.com/docs/user-guide/profile-distributions
 # ═══════════════════════════════════════════════════════════════════════════
 name: jarvis
-version: 1.10.1
+version: 1.10.2
 description: "J.A.R.V.I.S. — персональный ассистент для Mac на Hermes Agent: голос, HUD, календарь/напоминания/окна, база знаний, хранилище файлов"
 hermes_requires: ">=0.12.0"
 author: "ERTGYKI (github.com/debug999-cyber)"

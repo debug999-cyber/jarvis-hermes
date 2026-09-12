@@ -108,6 +108,24 @@ tail -f "$HERMES_HOME"/logs/jarvis-hud.log             # (или ~/.hermes/logs/
 ```
 Если после обновления macOS разрешения «слетели» — удалите терминал из списков и добавьте заново.
 
+## Обновление (`jarvis update`)
+
+**`✖ проверка не удалась: <urlopen error [Errno 8] nodename nor servname provided, or not known>`** — Python не смог
+разрешить имя `api.github.com`, хотя браузер работает. Почти всегда это прокси/PAC-файл, оставшийся в настройках сети от VPN
+(Python читает системный прокси, curl — нет). Начиная с 1.10.2 обновлялка сама пробует три способа: urllib с системным
+прокси → без прокси → `curl`; `jarvis doctor` показывает пункт «Сеть → GitHub» с точным диагнозом. Если всё равно не выходит:
+
+```bash
+# 1. без GitHub API — из папки или zip с проектом (скачайте «Code → Download ZIP» в браузере)
+jarvis update --from ~/Downloads/jarvis-hermes-main.zip
+# 2. или полная переустановка одной командой (get.sh сам качает через git/curl)
+curl -fsSL https://raw.githubusercontent.com/debug999-cyber/jarvis-hermes/main/get.sh | bash
+# 3. проверить сам прокси: Системные настройки → Сеть → Wi-Fi → Подробнее → Прокси — снять все галочки
+scutil --proxy
+```
+
+Обновление никогда не ломает установку: перед заменой делается бэкап, при ошибке — автоматический откат (`jarvis update --rollback`).
+
 ## Полный сброс JARVIS (без потери памяти Hermes)
 
 ```bash

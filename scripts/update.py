@@ -4,6 +4,7 @@ JARVIS updater — проверка и установка обновлений �
 
     update.py check [--notify] [--json]   узнать, есть ли новая версия (пишет update.json)
     update.py apply [--force]             скачать → бэкап → install.sh → перезапуск сервисов
+    update.py apply --from PATH|URL       то же из папки/zip/tar.gz (без GitHub API — когда нет сети или прокси мешает)
     update.py auto                        то, что делает ежедневный демон: check, затем apply, если режим auto
     update.py rollback                    откатиться на предыдущую установку
     update.py status [--json]             текущая версия, канал, режим, последняя проверка
@@ -34,6 +35,7 @@ import tarfile
 import tempfile
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
@@ -78,15 +80,52 @@ def is_newer(latest: str, current: str, channel: str, latest_commit: str = "", c
     return parse_version(latest) > parse_version(current)
 
 
+class NotFound(Exception):
+    """HTTP 404 — для http_json это «релизов нет», а не ошибка сети."""
+
+
+def fetch_bytes(url: str, timeout: int = 15) -> bytes:
+    """Скачать URL тремя способами подряд: urllib с системным прокси → urllib без прокси → curl.
+
+    Зачем: на macOS urllib берёт прокси/PAC из настроек сети (в т. ч. оставшиеся от VPN) и падает с
+    «[Errno 8] nodename nor servname provided» — при этом браузер и curl прекрасно работают.
+    """
+    errors = []
+    for opener in (urllib.request.build_opener(), urllib.request.build_opener(urllib.request.ProxyHandler({}))):
+        try:
+            with opener.open(urllib.request.Request(url, headers=UA), timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise NotFound(url) from e
+            errors.append(f"HTTP {e.code}")
+            break  # сервер ответил — прокси ни при чём, curl не поможет
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            errors.append(str(getattr(e, "reason", e))[:120])
+    curl = shutil.which("curl")
+    if curl:
+        try:
+            proc = subprocess.run([curl, "-fsSL", "--max-time", str(timeout + 30), "-A", UA["User-Agent"], "-H", f"Accept: {UA['Accept']}", url],
+                                  capture_output=True, timeout=timeout + 40)
+            if proc.returncode == 0:
+                return proc.stdout
+            if proc.returncode == 22 and b"404" in proc.stderr:
+                raise NotFound(url)
+            errors.append(f"curl: код {proc.returncode}")
+        except (OSError, subprocess.SubprocessError) as e:
+            errors.append(f"curl: {e}")
+    hint = ""
+    if any("Errno 8" in x or "nodename" in x or "getaddrinfo" in x or "Errno -2" in x for x in errors):
+        hint = (" — не резолвится имя хоста. Проверьте интернет и VPN; если в Системных настройках → Сеть → Прокси "
+                "остался прокси или PAC-файл от VPN — отключите. Без сети: jarvis update --from <папка или zip с проектом>")
+    raise RuntimeError(f"нет доступа к {url.split('/')[2]}: {'; '.join(dict.fromkeys(errors)) or 'неизвестная ошибка'}{hint}")
+
+
 def http_json(url: str, timeout: int = 15) -> dict | None:
-    req = urllib.request.Request(url, headers=UA)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        raise
+        return json.loads(fetch_bytes(url, timeout).decode())
+    except NotFound:
+        return None
 
 
 def notify(title: str, text: str) -> None:
@@ -128,11 +167,8 @@ def fetch_latest(repo: str, channel: str) -> dict:
         raise RuntimeError(f"репозиторий {repo} недоступен или пуст")
     sha = commit["sha"]
     # VERSION из ветки, чтобы показать человеку номер, а не хеш
-    version = ""
     try:
-        with urllib.request.urlopen(urllib.request.Request(
-                f"https://raw.githubusercontent.com/{repo}/{sha}/VERSION", headers=UA), timeout=10) as r:
-            version = r.read().decode().strip()
+        version = fetch_bytes(f"https://raw.githubusercontent.com/{repo}/{sha}/VERSION", timeout=10).decode().strip()
     except Exception:
         version = sha[:7]
     return {"version": version, "commit": sha, "notes": commit["commit"]["message"][:1500],
@@ -227,19 +263,33 @@ def latest_backup() -> Path | None:
 
 
 # ───────────────────────── установка ─────────────────────────
-def download_and_extract(tarball: str, workdir: Path) -> Path:
-    """Скачать tar.gz и вернуть папку с install.sh внутри."""
-    archive = workdir / "src.tar.gz"
-    req = urllib.request.Request(tarball, headers=UA)
-    with urllib.request.urlopen(req, timeout=120) as r, open(archive, "wb") as f:
-        shutil.copyfileobj(r, f)
-    with tarfile.open(archive) as tf:
-        # защита от path traversal в архиве
-        for m in tf.getmembers():
-            if m.name.startswith("/") or ".." in Path(m.name).parts:
-                raise RuntimeError(f"подозрительный путь в архиве: {m.name}")
-        tf.extractall(workdir, filter="data") if hasattr(tarfile, "data_filter") else tf.extractall(workdir)
-    for cand in workdir.iterdir():
+def _safe_members(names) -> None:
+    for n in names:  # защита от path traversal в архиве
+        if n.startswith("/") or ".." in Path(n).parts:
+            raise RuntimeError(f"подозрительный путь в архиве: {n}")
+
+
+def download_and_extract(source: str, workdir: Path) -> Path:
+    """Источник — URL tar.gz/zip, локальный архив или папка с проектом. Возвращает папку с install.sh."""
+    src = Path(source).expanduser()
+    if src.is_dir():
+        if not (src / "install.sh").exists():
+            raise RuntimeError(f"в папке {src} нет install.sh")
+        return src
+    if src.is_file():
+        archive = src
+    else:
+        archive = workdir / ("src.zip" if source.lower().endswith(".zip") else "src.tar.gz")
+        archive.write_bytes(fetch_bytes(source, timeout=120))
+    if zipfile.is_zipfile(archive):
+        with zipfile.ZipFile(archive) as zf:
+            _safe_members(zf.namelist())
+            zf.extractall(workdir)
+    else:
+        with tarfile.open(archive) as tf:
+            _safe_members(m.name for m in tf.getmembers())
+            tf.extractall(workdir, filter="data") if hasattr(tarfile, "data_filter") else tf.extractall(workdir)
+    for cand in [workdir, *workdir.iterdir()]:
         if cand.is_dir() and (cand / "install.sh").exists():
             return cand
     raise RuntimeError("в архиве нет install.sh")
@@ -315,19 +365,22 @@ def apply(force: bool = False, tarball: str | None = None, version: str | None =
     cur = installed()
     info = read_json(UPDATE_JSON)
     if not tarball:
-        if not info or info.get("checked_at", "")[:10] != now_iso()[:10]:
+        if not info or info.get("checked_at", "")[:10] != now_iso()[:10] or info.get("error"):
             info = check()
         if info.get("error"):
             raise RuntimeError(f"проверка не удалась: {info['error']}")
         if not info.get("available") and not force:
             return {"updated": False, "reason": "уже последняя версия", "version": cur["version"]}
         tarball, version = info["tarball"], info["latest"]
-    log = [f"→ обновление {cur['version']} → {version}"]
+    else:
+        info = {}
+        version = version or "из локального источника"
+    log = []
     with tempfile.TemporaryDirectory(prefix="jarvis-update-") as tmp:
         src = download_and_extract(tarball, Path(tmp))
-        log.append(f"✔ скачано: {src.name}")
         smoke_test(src)
-        log.append("✔ проверка синтаксиса пройдена")
+        version = (src / "VERSION").read_text().strip() or version
+        log += [f"→ обновление {cur['version']} → {version}", f"✔ получено: {src.name}", "✔ проверка синтаксиса пройдена"]
         backup = make_backup(cur["version"])
         log.append(f"✔ бэкап: {backup}")
         env = {**os.environ, "HERMES_HOME": str(HERMES_HOME), "JARVIS_QUIET": "1",
@@ -349,7 +402,7 @@ def apply(force: bool = False, tarball: str | None = None, version: str | None =
     new["previous_version"] = cur["version"]
     new["updated_at"] = now_iso()
     write_json(INSTALL_JSON, new)
-    write_json(UPDATE_JSON, {**info, "available": False, "current": new["version"], "applied_at": now_iso()})
+    write_json(UPDATE_JSON, {**read_json(UPDATE_JSON), **info, "available": False, "error": "", "current": new["version"], "applied_at": now_iso()})
     restart_services()
     log.append("✔ сервисы перезапущены")
     try:
@@ -423,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd")
     c = sub.add_parser("check"); c.add_argument("--notify", action="store_true"); c.add_argument("--json", action="store_true")
     a = sub.add_parser("apply"); a.add_argument("--force", action="store_true")
+    a.add_argument("--from", dest="source", default=None, help="папка, zip/tar.gz или URL с проектом — обновление без GitHub API")
     sub.add_parser("auto"); sub.add_parser("rollback")
     s = sub.add_parser("status"); s.add_argument("--json", action="store_true")
     st = sub.add_parser("set"); st.add_argument("key"); st.add_argument("value")
@@ -440,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"✔ У вас последняя версия {r['current']} ({r['channel']})")
             return 0
         if args.cmd == "apply":
-            r = apply(force=args.force)
+            r = apply(force=args.force or bool(args.source), tarball=args.source)
             print("\n".join(r.get("log", [])) or r.get("reason", ""))
             if r.get("updated"):
                 print(f"\n✔ JARVIS обновлён до {r['to']}. Откат: jarvis update --rollback")
